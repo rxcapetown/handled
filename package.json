@@ -1,0 +1,23 @@
+{
+  "name": "handled",
+  "version": "1.0.0",
+  "description": "AI personal agent via WhatsApp — no app, no setup, just text",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "db:init": "node db.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "better-sqlite3": "^11.7.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "googleapis": "^144.0.0",
+    "node-cron": "^3.0.3",
+    "stripe": "^17.5.0",
+    "twilio": "^5.4.3"
+  }
+}

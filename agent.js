@@ -1,0 +1,342 @@
+// agent.js — The AI agent brain powered by Claude
+const Anthropic = require("@anthropic-ai/sdk");
+const {
+  getOrCreateUser, isTrialActive, trialDaysLeft, hasProvider,
+  getMemory, addMessage, getRecentMessages, setMemory, addReminder, logActivity,
+} = require("./db");
+const google = require("./tools/google");
+
+const client = new Anthropic();
+
+// ─── Tool definitions for Claude ──────────────────────────────
+const TOOLS = [
+  {
+    name: "list_emails",
+    description: "List the user's recent or unread emails from Gmail. Use this when the user asks to check email, see what's new, or look for specific emails.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Gmail search query. Default: 'is:unread'. Examples: 'from:boss@company.com', 'subject:invoice', 'is:important'" },
+        max_results: { type: "number", description: "Number of emails to return. Default: 5, max: 10." }
+      }
+    }
+  },
+  {
+    name: "read_email",
+    description: "Read the full content of a specific email by its ID. Use after listing emails when the user wants to see the full content.",
+    input_schema: {
+      type: "object",
+      properties: {
+        email_id: { type: "string", description: "The email ID from list_emails results" }
+      },
+      required: ["email_id"]
+    }
+  },
+  {
+    name: "draft_reply",
+    description: "Draft a reply to an email. Returns the draft for user approval before sending.",
+    input_schema: {
+      type: "object",
+      properties: {
+        email_id: { type: "string", description: "The email ID to reply to" },
+        reply_text: { type: "string", description: "The reply message body" }
+      },
+      required: ["email_id", "reply_text"]
+    }
+  },
+  {
+    name: "list_events",
+    description: "List upcoming calendar events. Use when user asks about their schedule, today's meetings, or upcoming events.",
+    input_schema: {
+      type: "object",
+      properties: {
+        days_ahead: { type: "number", description: "Number of days ahead to look. Default: 7" }
+      }
+    }
+  },
+  {
+    name: "create_event",
+    description: "Create a new calendar event. Use when user wants to schedule something.",
+    input_schema: {
+      type: "object",
+      properties: {
+        summary: { type: "string", description: "Event title" },
+        start_time: { type: "string", description: "ISO 8601 start time" },
+        end_time: { type: "string", description: "ISO 8601 end time (optional, defaults to 1 hour after start)" },
+        description: { type: "string", description: "Event description (optional)" },
+        location: { type: "string", description: "Event location (optional)" }
+      },
+      required: ["summary", "start_time"]
+    }
+  },
+  {
+    name: "set_reminder",
+    description: "Set a reminder for the user. The agent will send a WhatsApp message when the reminder is due.",
+    input_schema: {
+      type: "object",
+      properties: {
+        task: { type: "string", description: "What to remind the user about" },
+        due_at: { type: "string", description: "ISO 8601 datetime for when to send the reminder" }
+      },
+      required: ["task", "due_at"]
+    }
+  },
+  {
+    name: "remember",
+    description: "Store a fact about the user for future reference. Use when the user shares personal info, preferences, or important context.",
+    input_schema: {
+      type: "object",
+      properties: {
+        key: { type: "string", description: "Short label like 'dentist_name', 'kids_ages', 'preferred_airline'" },
+        value: { type: "string", description: "The information to remember" }
+      },
+      required: ["key", "value"]
+    }
+  }
+];
+
+// ─── Execute tool calls ───────────────────────────────────────
+async function executeTool(phone, toolName, toolInput) {
+  switch (toolName) {
+    case "list_emails":
+      return await google.listEmails(phone, toolInput.query || "is:unread", toolInput.max_results || 5);
+
+    case "read_email":
+      return await google.readEmail(phone, toolInput.email_id);
+
+    case "draft_reply":
+      return await google.draftReply(phone, toolInput.email_id, toolInput.reply_text);
+
+    case "list_events": {
+      const now = new Date();
+      const daysAhead = toolInput.days_ahead || 7;
+      const timeMax = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000).toISOString();
+      return await google.listEvents(phone, now.toISOString(), timeMax);
+    }
+
+    case "create_event":
+      return await google.createEvent(phone, {
+        summary: toolInput.summary,
+        startTime: toolInput.start_time,
+        endTime: toolInput.end_time,
+        description: toolInput.description,
+        location: toolInput.location,
+      });
+
+    case "set_reminder":
+      addReminder(phone, toolInput.task, toolInput.due_at);
+      logActivity(phone, "set_reminder", toolInput.task);
+      return { success: true, task: toolInput.task, due_at: toolInput.due_at };
+
+    case "remember":
+      setMemory(phone, toolInput.key, toolInput.value);
+      return { success: true, remembered: `${toolInput.key}: ${toolInput.value}` };
+
+    default:
+      return { error: `Unknown tool: ${toolName}` };
+  }
+}
+
+// ─── Build system prompt ──────────────────────────────────────
+function buildSystemPrompt(user, memories, hasGmail, hasCalendar) {
+  const memoryBlock = memories.length > 0
+    ? `\n\nThings you remember about this user:\n${memories.map((m) => `- ${m.key}: ${m.value}`).join("\n")}`
+    : "";
+
+  const connectionStatus = [];
+  if (hasGmail) connectionStatus.push("Gmail is connected — you can read and manage their email.");
+  else connectionStatus.push("Gmail is NOT connected. If they ask about email, tell them to connect it first.");
+  if (hasCalendar) connectionStatus.push("Google Calendar is connected — you can read and create events.");
+  else connectionStatus.push("Google Calendar is NOT connected via the same Google auth. If Gmail is connected, Calendar is too.");
+
+  const today = new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  const currentTime = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: user.timezone || "America/Chicago" });
+
+  return `You are Handled, a personal AI agent. You communicate via WhatsApp. You are helpful, concise, and action-oriented. You don't just answer questions — you DO things for the user.
+
+Today is ${today}. Current time: ${currentTime} (${user.timezone || "America/Chicago"}).
+
+The user's name is ${user.name || "unknown (ask them)"}.
+Their phone number is ${user.phone}.
+
+${connectionStatus.join("\n")}
+${memoryBlock}
+
+IMPORTANT RULES:
+- Keep responses SHORT. This is WhatsApp, not email. 2-4 sentences max unless listing emails/events.
+- Use emoji sparingly but naturally. You're a helpful assistant, not a robot.
+- When you learn something new about the user (name, preferences, contacts), use the 'remember' tool.
+- For email actions that send messages, ALWAYS draft first and ask for confirmation before sending.
+- If the user asks to do something that requires a connection you don't have, explain how to connect it.
+- Be proactive: if you notice something important (urgent email, upcoming meeting), mention it.
+- Speak the user's language. If they text in Bangla, respond in Bangla. If Spanish, respond in Spanish.
+- Never mention that you're powered by Claude, OpenClaw, or any technical details. You are "Handled."`;
+}
+
+// ─── Main agent function ──────────────────────────────────────
+async function handleMessage(phone, messageText) {
+  const user = getOrCreateUser(phone);
+  const active = isTrialActive(user);
+
+  // If trial expired and not paid — send conversion message
+  if (!active) {
+    const connectUrl = `${process.env.BASE_URL}/connect?phone=${encodeURIComponent(phone)}`;
+    logActivity(phone, "trial_expired_message", null);
+    return `Your 7-day free trial has ended. I handled a lot of tasks for you this week! 💪
+
+To keep your AI agent working for you, subscribe for just $9.99/month (cancel anytime):
+${process.env.BASE_URL}/subscribe?phone=${encodeURIComponent(phone)}
+
+I'll still send you a morning briefing for free — but I can't manage your email or calendar until you subscribe. Just text "upgrade" whenever you're ready!`;
+  }
+
+  // Save incoming message
+  addMessage(phone, "user", messageText);
+
+  // Load context
+  const memories = getMemory(phone);
+  const hasGmail = hasProvider(phone, "google");
+  const hasCalendar = hasGmail; // Same OAuth scope
+  const recentMessages = getRecentMessages(phone, 20);
+  const systemPrompt = buildSystemPrompt(user, memories, hasGmail, hasCalendar);
+
+  // Determine available tools (only offer email/calendar tools if connected)
+  const availableTools = TOOLS.filter((t) => {
+    if (["list_emails", "read_email", "draft_reply"].includes(t.name) && !hasGmail) return false;
+    if (["list_events", "create_event"].includes(t.name) && !hasCalendar) return false;
+    return true;
+  });
+
+  // Build messages array
+  const messages = recentMessages.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
+
+  try {
+    // Call Claude with tools
+    let response = await client.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 1024,
+      system: systemPrompt,
+      tools: availableTools.length > 0 ? availableTools : undefined,
+      messages,
+    });
+
+    // Handle tool use loop (Claude may call multiple tools)
+    let loopCount = 0;
+    while (response.stop_reason === "tool_use" && loopCount < 5) {
+      loopCount++;
+      const toolUseBlocks = response.content.filter((b) => b.type === "tool_use");
+      const toolResults = [];
+
+      for (const toolUse of toolUseBlocks) {
+        const result = await executeTool(phone, toolUse.name, toolUse.input);
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: toolUse.id,
+          content: JSON.stringify(result),
+        });
+      }
+
+      // Continue conversation with tool results
+      messages.push({ role: "assistant", content: response.content });
+      messages.push({ role: "user", content: toolResults });
+
+      response = await client.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1024,
+        system: systemPrompt,
+        tools: availableTools,
+        messages,
+      });
+    }
+
+    // Extract final text response
+    const textBlocks = response.content.filter((b) => b.type === "text");
+    const reply = textBlocks.map((b) => b.text).join("\n") || "I processed your request but don't have a text response. Could you try asking differently?";
+
+    // Save assistant message
+    addMessage(phone, "assistant", reply);
+    logActivity(phone, "agent_response", reply.slice(0, 100));
+
+    // Check if Gmail not connected and user seems to want email
+    if (!hasGmail && /email|inbox|mail|gmail/i.test(messageText)) {
+      const authUrl = google.getGoogleAuthUrl(phone);
+      return `${reply}\n\n📧 To connect your email, tap this link:\n${authUrl}`;
+    }
+
+    return reply;
+  } catch (err) {
+    console.error("Agent error:", err);
+    logActivity(phone, "agent_error", err.message);
+    return "Sorry, I hit a temporary issue. Could you try that again? 🙏";
+  }
+}
+
+// ─── Generate daily briefing ──────────────────────────────────
+async function generateBriefing(phone) {
+  const user = getOrCreateUser(phone);
+  if (!isTrialActive(user) && !user.is_paid) {
+    // Free briefing for expired trial users (minimal cost)
+    return `☀️ Good morning${user.name ? `, ${user.name}` : ""}!\n\nYour free daily briefing: Today is ${new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}.\n\nTo get your full briefing with email summaries, calendar events, and reminders, subscribe for $9.99/month:\n${process.env.BASE_URL}/subscribe?phone=${encodeURIComponent(phone)}`;
+  }
+
+  const parts = [];
+  const memories = getMemory(phone);
+  const userName = user.name || "";
+
+  parts.push(`☀️ Good morning${userName ? `, ${userName}` : ""}! Here's your daily briefing:\n`);
+
+  // Email summary
+  if (hasProvider(phone, "google")) {
+    try {
+      const emailResult = await google.listEmails(phone, "is:unread", 5);
+      if (emailResult.emails && emailResult.emails.length > 0) {
+        parts.push(`📧 *${emailResult.emails.length} unread emails:*`);
+        emailResult.emails.forEach((e, i) => {
+          parts.push(`${i + 1}. ${e.from.split("<")[0].trim()} — ${e.subject}`);
+        });
+      } else {
+        parts.push("📧 Inbox clear! No unread emails.");
+      }
+    } catch (e) {
+      parts.push("📧 Couldn't check email — may need to reconnect.");
+    }
+
+    // Calendar
+    try {
+      const now = new Date();
+      const endOfDay = new Date(now);
+      endOfDay.setHours(23, 59, 59);
+      const eventResult = await google.listEvents(phone, now.toISOString(), endOfDay.toISOString());
+      if (eventResult.events && eventResult.events.length > 0) {
+        parts.push(`\n📅 *Today's schedule:*`);
+        eventResult.events.forEach((e) => {
+          const time = new Date(e.start).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+          parts.push(`• ${time} — ${e.summary}`);
+        });
+      } else {
+        parts.push("\n📅 No events today. Wide open!");
+      }
+    } catch (e) {
+      parts.push("\n📅 Couldn't check calendar.");
+    }
+  }
+
+  // Pending reminders
+  const { getDueReminders } = require("./db");
+  const dueToday = getDueReminders();
+  const userReminders = dueToday.filter((r) => r.phone === phone);
+  if (userReminders.length > 0) {
+    parts.push(`\n⏰ *Reminders due:*`);
+    userReminders.forEach((r) => parts.push(`• ${r.task}`));
+  }
+
+  parts.push("\nWhat would you like me to handle today?");
+
+  logActivity(phone, "daily_briefing", "sent");
+  return parts.join("\n");
+}
+
+module.exports = { handleMessage, generateBriefing };
