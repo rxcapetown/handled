@@ -7,10 +7,11 @@ const twilio = require("twilio");
 const path = require("path");
 const {
   getOrCreateUser, updateUser, saveOAuthTokens, isTrialActive,
-  getDueReminders, markReminderSent, logActivity, getActivity, db,
+  getDueReminders, markReminderSent, logActivity, getActivity, db, hasProvider,
 } = require("./db");
 const { handleMessage, generateBriefing } = require("./agent");
-const { getOAuth2Client, getGoogleAuthUrl } = require("./tools/google");
+const googleTools = require("./tools/google");
+const { getOAuth2Client, getGoogleAuthUrl } = googleTools;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -60,9 +61,9 @@ app.post("/webhook/whatsapp", async (req, res) => {
       return;
     }
 
-    if (body.toLowerCase() === "connect" || body.toLowerCase() === "connect email") {
-      const authUrl = getGoogleAuthUrl(phone);
-      await sendWhatsApp(from, `Tap this link to securely connect your Gmail and Calendar:\n${authUrl}\n\nYou'll see Google's standard "Sign in" screen. I'll only be able to read and send emails and manage your calendar.`);
+    if (body.toLowerCase() === "connect" || body.toLowerCase() === "connect email" || body.toLowerCase() === "connect google") {
+      const connectUrl = `${process.env.BASE_URL}/connect?phone=${encodeURIComponent(phone)}`;
+      await sendWhatsApp(from, `🔗 *Connect your accounts:*\n\n📧 Google (Gmail + Calendar):\n${connectUrl}\n\nTap the link above → Sign in with Google → Done! Takes 10 seconds.\n\n🔒 We use Google's official sign-in. Your password is never shared with us.`);
       return;
     }
 
@@ -349,18 +350,128 @@ cron.schedule("*/5 * * * *", async () => {
   }
 });
 
-// Daily briefings at 7 AM (simplified — in production, check each user's timezone)
-cron.schedule("0 7 * * *", async () => {
-  console.log("[Cron] Sending daily briefings...");
+// Daily briefings at 7 AM Central (12 PM UTC)
+cron.schedule("0 12 * * *", async () => {
+  console.log("[Cron] Sending morning briefings...");
   const users = db.prepare("SELECT phone FROM users WHERE is_paid = 1 OR trial_start > datetime('now', '-7 days')").all();
   for (const user of users) {
     try {
       const briefing = await generateBriefing(user.phone);
       await sendWhatsApp(`whatsapp:${user.phone}`, briefing);
-      // Stagger sends to avoid rate limits
       await new Promise((r) => setTimeout(r, 1000));
     } catch (err) {
-      console.error(`Briefing failed for ${user.phone}:`, err.message);
+      console.error(`Morning briefing failed for ${user.phone}:`, err.message);
+    }
+  }
+});
+
+// Noon check-in at 12 PM Central (5 PM UTC)
+cron.schedule("0 17 * * *", async () => {
+  console.log("[Cron] Sending noon check-ins...");
+  const users = db.prepare("SELECT phone FROM users WHERE is_paid = 1 OR trial_start > datetime('now', '-7 days')").all();
+  for (const user of users) {
+    try {
+      const { getOrCreateUser } = require("./db");
+      const userData = getOrCreateUser(user.phone);
+      const parts = [];
+      const name = userData.name || "";
+      parts.push(`☀️ Midday check-in${name ? `, ${name}` : ""}!\n`);
+
+      if (hasProvider(user.phone, "google")) {
+        try {
+          const emailResult = await googleTools.listEmails(user.phone, "is:unread newer_than:4h", 5);
+          if (emailResult.emails && emailResult.emails.length > 0) {
+            parts.push(`📧 *${emailResult.emails.length} new emails since this morning:*`);
+            emailResult.emails.forEach((e, i) => {
+              parts.push(`${i + 1}. ${e.from.split("<")[0].trim()} — ${e.subject}`);
+            });
+          } else {
+            parts.push("📧 No new emails since this morning.");
+          }
+        } catch (e) { /* skip */ }
+
+        try {
+          const now = new Date();
+          const endOfDay = new Date(now);
+          endOfDay.setHours(23, 59, 59);
+          const eventResult = await googleTools.listEvents(user.phone, now.toISOString(), endOfDay.toISOString());
+          if (eventResult.events && eventResult.events.length > 0) {
+            parts.push(`\n📅 *Rest of today:*`);
+            eventResult.events.forEach((e) => {
+              const time = new Date(e.start).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+              parts.push(`• ${time} — ${e.summary}`);
+            });
+          } else {
+            parts.push("\n📅 Nothing else on the calendar today.");
+          }
+        } catch (e) { /* skip */ }
+      }
+
+      parts.push("\nNeed me to handle anything?");
+      await sendWhatsApp(`whatsapp:${user.phone}`, parts.join("\n"));
+      await new Promise((r) => setTimeout(r, 1000));
+    } catch (err) {
+      console.error(`Noon check-in failed for ${user.phone}:`, err.message);
+    }
+  }
+});
+
+// Evening wrap-up at 7 PM Central (12 AM UTC next day = 0 UTC)
+cron.schedule("0 0 * * *", async () => {
+  console.log("[Cron] Sending evening wrap-ups...");
+  const users = db.prepare("SELECT phone FROM users WHERE is_paid = 1 OR trial_start > datetime('now', '-7 days')").all();
+  for (const user of users) {
+    try {
+      const { getOrCreateUser } = require("./db");
+      const userData = getOrCreateUser(user.phone);
+      const parts = [];
+      const name = userData.name || "";
+      parts.push(`🌙 Evening wrap-up${name ? `, ${name}` : ""}!\n`);
+
+      if (hasProvider(user.phone, "google")) {
+        try {
+          const emailResult = await googleTools.listEmails(user.phone, "is:unread", 3);
+          if (emailResult.emails && emailResult.emails.length > 0) {
+            parts.push(`📧 *${emailResult.emails.length} unread emails to deal with:*`);
+            emailResult.emails.forEach((e, i) => {
+              parts.push(`${i + 1}. ${e.from.split("<")[0].trim()} — ${e.subject}`);
+            });
+          } else {
+            parts.push("📧 Inbox clear! Nice work today.");
+          }
+        } catch (e) { /* skip */ }
+
+        try {
+          const tomorrow = new Date();
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          tomorrow.setHours(0, 0, 0, 0);
+          const tomorrowEnd = new Date(tomorrow);
+          tomorrowEnd.setHours(23, 59, 59);
+          const eventResult = await googleTools.listEvents(user.phone, tomorrow.toISOString(), tomorrowEnd.toISOString());
+          if (eventResult.events && eventResult.events.length > 0) {
+            parts.push(`\n📅 *Tomorrow's schedule:*`);
+            eventResult.events.forEach((e) => {
+              const time = new Date(e.start).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+              parts.push(`• ${time} — ${e.summary}`);
+            });
+          } else {
+            parts.push("\n📅 Nothing on tomorrow's calendar. Rest up!");
+          }
+        } catch (e) { /* skip */ }
+      }
+
+      const { getDueReminders } = require("./db");
+      const allReminders = db.prepare("SELECT * FROM reminders WHERE phone = ? AND sent = 0").all(user.phone);
+      if (allReminders.length > 0) {
+        parts.push(`\n⏰ *Pending reminders:*`);
+        allReminders.forEach((r) => parts.push(`• ${r.task}`));
+      }
+
+      parts.push("\nGoodnight! I'll have your briefing ready in the morning. 💤");
+      await sendWhatsApp(`whatsapp:${user.phone}`, parts.join("\n"));
+      await new Promise((r) => setTimeout(r, 1000));
+    } catch (err) {
+      console.error(`Evening wrap-up failed for ${user.phone}:`, err.message);
     }
   }
 });

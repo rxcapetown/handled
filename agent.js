@@ -92,6 +92,17 @@ const TOOLS = [
       },
       required: ["key", "value"]
     }
+  },
+  {
+    name: "web_search",
+    description: "Search the web for current information. Use for flights, hotels, shopping, product prices, news, restaurants, weather, or any question requiring up-to-date info. Always use this when user asks to find, search, look up, or compare things.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "The search query. Be specific. E.g. 'cheap flights Dallas to Dhaka June 2026', 'AirPods Pro price comparison', 'best Italian restaurant Fort Worth'" }
+      },
+      required: ["query"]
+    }
   }
 ];
 
@@ -132,6 +143,28 @@ async function executeTool(phone, toolName, toolInput) {
       setMemory(phone, toolInput.key, toolInput.value);
       return { success: true, remembered: `${toolInput.key}: ${toolInput.value}` };
 
+    case "web_search": {
+      try {
+        // Use Claude with web search tool to get real-time results
+        const searchResponse = await client.messages.create({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1024,
+          tools: [{ type: "web_search_20250305", name: "web_search" }],
+          messages: [{ role: "user", content: `Search the web for: ${toolInput.query}. Return a concise summary of the top results with specific details like prices, dates, links, and ratings where available.` }],
+        });
+        // Extract all text from the response
+        const searchText = searchResponse.content
+          .filter((b) => b.type === "text")
+          .map((b) => b.text)
+          .join("\n");
+        logActivity(phone, "web_search", toolInput.query);
+        return { results: searchText || "No results found." };
+      } catch (err) {
+        console.error("Web search error:", err.message);
+        return { error: `Search failed: ${err.message}` };
+      }
+    }
+
     default:
       return { error: `Unknown tool: ${toolName}` };
   }
@@ -158,6 +191,7 @@ Today is ${today}. Current time: ${currentTime} (${user.timezone || "America/Chi
 
 The user's name is ${user.name || "unknown (ask them)"}.
 Their phone number is ${user.phone}.
+Connect page URL: ${process.env.BASE_URL}/connect?phone=${encodeURIComponent(user.phone)}
 
 ${connectionStatus.join("\n")}
 ${memoryBlock}
@@ -167,11 +201,25 @@ IMPORTANT RULES:
 - Use emoji sparingly but naturally. You're a helpful assistant, not a robot.
 - When you learn something new about the user (name, preferences, contacts), use the 'remember' tool.
 - For email actions that send messages, ALWAYS draft first and ask for confirmation before sending.
-- If the user asks to do something that requires a connection you don't have, explain how to connect it.
+- If the user asks to do something that requires a connection you don't have, give them the connect page URL (not a raw OAuth link). Say something like "To connect your email, tap here: [connect URL]"
 - Be proactive: if you notice something important (urgent email, upcoming meeting), mention it.
 - Speak the user's language. If they text in Bangla, respond in Bangla. If Spanish, respond in Spanish.
-- Never mention that you're powered by Claude, OpenClaw, or any technical details. You are "Handled."`;
-}
+- Never mention that you're powered by Claude, OpenClaw, or any technical details. You are "Handled."
+- For flights, hotels, shopping, products, restaurants, news — use the web_search tool. Always provide specific prices, links, and options.
+- When a NEW user says "hi" or "hello" for the first time (no name in memory), introduce yourself warmly and ask their name. Then offer to connect their accounts using the connect page URL.
+
+FIRST-TIME USER WELCOME (use when user has no name in memory and says hi/hello):
+"Hey there! 👋 I'm Handled — your personal AI agent right here in WhatsApp.
+
+I can manage your email, calendar, reminders, find flights, shop for deals, and more — all from this chat.
+
+To get started, what's your name?
+
+Then we'll connect your accounts:
+📧 Connect Google (Gmail + Calendar): ${process.env.BASE_URL}/connect?phone=${encodeURIComponent(user.phone)}
+
+🔒 Uses Google's official sign-in. Your password is never shared."`;
+};
 
 // ─── Main agent function ──────────────────────────────────────
 async function handleMessage(phone, messageText) {
@@ -260,10 +308,10 @@ I'll still send you a morning briefing for free — but I can't manage your emai
     addMessage(phone, "assistant", reply);
     logActivity(phone, "agent_response", reply.slice(0, 100));
 
-    // Check if Gmail not connected and user seems to want email
-    if (!hasGmail && /email|inbox|mail|gmail/i.test(messageText)) {
-      const authUrl = google.getGoogleAuthUrl(phone);
-      return `${reply}\n\n📧 To connect your email, tap this link:\n${authUrl}`;
+    // Check if Gmail not connected and user seems to want email or calendar
+    if (!hasGmail && /email|inbox|mail|gmail|calendar|schedule|meeting/i.test(messageText)) {
+      const connectUrl = `${process.env.BASE_URL}/connect?phone=${encodeURIComponent(phone)}`;
+      return `${reply}\n\n📧 Connect your accounts here:\n${connectUrl}`;
     }
 
     return reply;
