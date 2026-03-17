@@ -108,31 +108,56 @@ const TOOLS = [
 
 // ─── Execute tool calls ───────────────────────────────────────
 async function executeTool(phone, toolName, toolInput) {
+  const hasMicrosoft = hasProvider(phone, "microsoft");
+  const hasGoogle = hasProvider(phone, "google");
+
+  // Dynamically load Microsoft tools only when needed
+  let microsoft;
+  if (hasMicrosoft) {
+    microsoft = require("./tools/microsoft");
+  }
+
   switch (toolName) {
     case "list_emails":
-      return await google.listEmails(phone, toolInput.query || "is:unread", toolInput.max_results || 5);
+      if (hasGoogle) return await google.listEmails(phone, toolInput.query || "is:unread", toolInput.max_results || 5);
+      if (hasMicrosoft) return await microsoft.listOutlookEmails(phone, toolInput.query || "isRead eq false", toolInput.max_results || 5);
+      return { error: "No email account connected." };
 
     case "read_email":
-      return await google.readEmail(phone, toolInput.email_id);
+      if (hasGoogle) return await google.readEmail(phone, toolInput.email_id);
+      if (hasMicrosoft) return await microsoft.readOutlookEmail(phone, toolInput.email_id);
+      return { error: "No email account connected." };
 
     case "draft_reply":
-      return await google.draftReply(phone, toolInput.email_id, toolInput.reply_text);
+      if (hasGoogle) return await google.draftReply(phone, toolInput.email_id, toolInput.reply_text);
+      if (hasMicrosoft) return await microsoft.draftOutlookReply(phone, toolInput.email_id, toolInput.reply_text);
+      return { error: "No email account connected." };
 
     case "list_events": {
       const now = new Date();
       const daysAhead = toolInput.days_ahead || 7;
       const timeMax = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000).toISOString();
-      return await google.listEvents(phone, now.toISOString(), timeMax);
+      if (hasGoogle) return await google.listEvents(phone, now.toISOString(), timeMax);
+      if (hasMicrosoft) return await microsoft.listOutlookEvents(phone, now.toISOString(), timeMax);
+      return { error: "No calendar connected." };
     }
 
     case "create_event":
-      return await google.createEvent(phone, {
+      if (hasGoogle) return await google.createEvent(phone, {
         summary: toolInput.summary,
         startTime: toolInput.start_time,
         endTime: toolInput.end_time,
         description: toolInput.description,
         location: toolInput.location,
       });
+      if (hasMicrosoft) return await microsoft.createOutlookEvent(phone, {
+        summary: toolInput.summary,
+        startTime: toolInput.start_time,
+        endTime: toolInput.end_time,
+        description: toolInput.description,
+        location: toolInput.location,
+      });
+      return { error: "No calendar connected." };
 
     case "set_reminder":
       addReminder(phone, toolInput.task, toolInput.due_at);
@@ -185,40 +210,65 @@ function buildSystemPrompt(user, memories, hasGmail, hasCalendar) {
   const today = new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
   const currentTime = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: user.timezone || "America/Chicago" });
 
-  return `You are Handled, a personal AI agent. You communicate via WhatsApp. You are helpful, concise, and action-oriented. You don't just answer questions — you DO things for the user.
+  const connectUrl = `${process.env.BASE_URL}/connect?phone=${encodeURIComponent(user.phone)}`;
+
+  return `You are Umar, a personal AI agent. You communicate via WhatsApp. You have a warm, friendly personality — like a reliable friend who's incredibly organized and gets things done. You're not a robot. You're Umar.
 
 Today is ${today}. Current time: ${currentTime} (${user.timezone || "America/Chicago"}).
 
 The user's name is ${user.name || "unknown (ask them)"}.
 Their phone number is ${user.phone}.
-Connect page URL: ${process.env.BASE_URL}/connect?phone=${encodeURIComponent(user.phone)}
+Connect page URL: ${connectUrl}
 
 ${connectionStatus.join("\n")}
 ${memoryBlock}
 
 IMPORTANT RULES:
 - Keep responses SHORT. This is WhatsApp, not email. 2-4 sentences max unless listing emails/events.
-- Use emoji sparingly but naturally. You're a helpful assistant, not a robot.
-- When you learn something new about the user (name, preferences, contacts), use the 'remember' tool.
+- Use emoji naturally but not excessively.
+- When you learn something new about the user (name, preferences, contacts), use the 'remember' tool immediately.
 - For email actions that send messages, ALWAYS draft first and ask for confirmation before sending.
-- If the user asks to do something that requires a connection you don't have, give them the connect page URL (not a raw OAuth link). Say something like "To connect your email, tap here: [connect URL]"
+- If the user asks to do something that requires a connection you don't have, give them the connect page URL. Keep it clean: "Tap here to connect: [URL]"
 - Be proactive: if you notice something important (urgent email, upcoming meeting), mention it.
 - Speak the user's language. If they text in Bangla, respond in Bangla. If Spanish, respond in Spanish.
-- Never mention that you're powered by Claude, OpenClaw, or any technical details. You are "Handled."
+- Never mention Claude, Anthropic, OpenClaw, AI models, or any technical details. You are Umar.
 - For flights, hotels, shopping, products, restaurants, news — use the web_search tool. ALWAYS include direct clickable URLs so the user can tap and buy or book immediately. Format each link on its own line so they are tappable in WhatsApp.
-- When a NEW user says "hi" or "hello" for the first time (no name in memory), introduce yourself warmly and ask their name. Then offer to connect their accounts using the connect page URL.
+- After providing search results, ask if they want you to set a reminder, add it to calendar, or keep searching.
+- When listing multiple items, use clean numbered lists with emoji icons.
 
-FIRST-TIME USER WELCOME (use when user has no name in memory and says hi/hello):
-"Hey there! 👋 I'm Handled — your personal AI agent right here in WhatsApp.
+FIRST-TIME USER WELCOME (use ONLY when user has no name in memory and says hi/hello/hey):
+Send this EXACT format:
 
-I can manage your email, calendar, reminders, find flights, shop for deals, and more — all from this chat.
+"Hey! 👋 I'm *Umar* — your personal AI assistant.
 
-To get started, what's your name?
+I live right here in WhatsApp and I can:
 
-Then we'll connect your accounts:
-📧 Connect Google (Gmail + Calendar): ${process.env.BASE_URL}/connect?phone=${encodeURIComponent(user.phone)}
+📧 Manage your email — read, summarize, draft replies
+📅 Handle your calendar — schedule, remind, plan ahead
+⏰ Set reminders — never forget anything again
+✈️ Find flights & hotels — best deals with booking links
+🛍️ Shop for you — find products, compare prices
+📰 Keep you informed — news, weather, anything
 
-🔒 Uses Google's official sign-in. Your password is never shared."`;
+*What's your name?* I'd love to know who I'm working with!
+
+Once you tell me, tap below to connect your accounts:
+🔗 ${connectUrl}"
+
+RETURNING USER GREETING (use when user has name in memory and says hi/hello):
+Keep it short and action-oriented:
+"Hey [name]! 👋 What can I handle for you?"
+
+AFTER USER CONNECTS ACCOUNTS:
+"Perfect! You're all set. Here's what I can do right now:
+
+1️⃣ *Check email* — \"What's in my inbox?\"
+2️⃣ *Today's schedule* — \"What's on my calendar?\"
+3️⃣ *Set a reminder* — \"Remind me to call mom at 5pm\"
+4️⃣ *Find deals* — \"Find me AirPods Pro deals\"
+5️⃣ *Book travel* — \"Cheap flights to London in July\"
+
+Just text me anytime. I'm always here."`;
 };
 
 // ─── Main agent function ──────────────────────────────────────
@@ -244,13 +294,15 @@ I'll still send you a morning briefing for free — but I can't manage your emai
   // Load context
   const memories = getMemory(phone);
   const hasGmail = hasProvider(phone, "google");
-  const hasCalendar = hasGmail; // Same OAuth scope
+  const hasMicrosoft = hasProvider(phone, "microsoft");
+  const hasEmail = hasGmail || hasMicrosoft;
+  const hasCalendar = hasEmail; // Both Google and Microsoft OAuth include calendar
   const recentMessages = getRecentMessages(phone, 20);
-  const systemPrompt = buildSystemPrompt(user, memories, hasGmail, hasCalendar);
+  const systemPrompt = buildSystemPrompt(user, memories, hasEmail, hasCalendar);
 
   // Determine available tools (only offer email/calendar tools if connected)
   const availableTools = TOOLS.filter((t) => {
-    if (["list_emails", "read_email", "draft_reply"].includes(t.name) && !hasGmail) return false;
+    if (["list_emails", "read_email", "draft_reply"].includes(t.name) && !hasEmail) return false;
     if (["list_events", "create_event"].includes(t.name) && !hasCalendar) return false;
     return true;
   });
@@ -308,8 +360,8 @@ I'll still send you a morning briefing for free — but I can't manage your emai
     addMessage(phone, "assistant", reply);
     logActivity(phone, "agent_response", reply.slice(0, 100));
 
-    // Check if Gmail not connected and user seems to want email or calendar
-    if (!hasGmail && /email|inbox|mail|gmail|calendar|schedule|meeting/i.test(messageText)) {
+    // Check if no email connected and user seems to want email or calendar
+    if (!hasEmail && /email|inbox|mail|gmail|outlook|calendar|schedule|meeting/i.test(messageText)) {
       const connectUrl = `${process.env.BASE_URL}/connect?phone=${encodeURIComponent(phone)}`;
       return `${reply}\n\n📧 Connect your accounts here:\n${connectUrl}`;
     }

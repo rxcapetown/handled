@@ -63,7 +63,12 @@ app.post("/webhook/whatsapp", async (req, res) => {
 
     if (body.toLowerCase() === "connect" || body.toLowerCase() === "connect email" || body.toLowerCase() === "connect google") {
       const connectUrl = `${process.env.BASE_URL}/connect?phone=${encodeURIComponent(phone)}`;
-      await sendWhatsApp(from, `🔗 *Connect your accounts:*\n\n📧 Google (Gmail + Calendar):\n${connectUrl}\n\nTap the link above → Sign in with Google → Done! Takes 10 seconds.\n\n🔒 We use Google's official sign-in. Your password is never shared with us.`);
+      await sendWhatsApp(from, `🔗 *Connect your accounts:*\n\n📧 Google (Gmail + Calendar):\n${connectUrl}\n\nTap the link → Sign in with Google → Done! 10 seconds.\n\n🔒 Uses Google's official sign-in. Your password is never shared.`);
+      return;
+    }
+
+    if (body.toLowerCase() === "menu" || body.toLowerCase() === "help" || body.toLowerCase() === "?") {
+      await sendWhatsApp(from, `Hey! Here's what I can do:\n\n📧 *Email* — "Check my email" or "Any emails from [name]?"\n📅 *Calendar* — "What's on today?" or "Schedule a meeting Friday at 2pm"\n⏰ *Reminders* — "Remind me to call mom at 5pm"\n✈️ *Travel* — "Find flights to London in July"\n🛍️ *Shopping* — "Find me AirPods Pro deals"\n🔍 *Research* — "What's the weather tomorrow?" or any question\n📰 *News* — "What's happening in tech today?"\n\n💡 *Quick commands:*\nconnect — Link your Gmail/Calendar\nstatus — Check your plan\nmenu — See this list again\n\nJust text me naturally — I understand! 🤙`);
       return;
     }
 
@@ -71,7 +76,7 @@ app.post("/webhook/whatsapp", async (req, res) => {
       const user = getOrCreateUser(phone);
       const active = isTrialActive(user);
       const status = user.is_paid ? "Pro subscriber ✅" : active ? `Free trial (${require("./db").trialDaysLeft(user)} days left)` : "Trial expired";
-      await sendWhatsApp(from, `📊 Your status: ${status}\n\nType "connect" to link Gmail/Calendar\nType "upgrade" to subscribe`);
+      await sendWhatsApp(from, `📊 *Your status:* ${status}\n\n💡 *Commands:*\nconnect — Link Gmail/Calendar\nupgrade — Subscribe\nmenu — See what I can do`);
       return;
     }
 
@@ -146,30 +151,97 @@ app.get("/auth/google/callback", async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// MICROSOFT OAUTH CALLBACK
+// ═══════════════════════════════════════════════════════════════
+app.get("/auth/microsoft/callback", async (req, res) => {
+  const { code, state: phone } = req.query;
+
+  if (!code || !phone) {
+    return res.status(400).send("Missing authorization code. Please try again from WhatsApp.");
+  }
+
+  try {
+    const microsoft = require("./tools/microsoft");
+    const tokens = await microsoft.exchangeCodeForTokens(code);
+
+    saveOAuthTokens(phone, "microsoft", {
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      expiry_date: Date.now() + tokens.expires_in * 1000,
+      scope: tokens.scope,
+    });
+
+    logActivity(phone, "connected_microsoft", "Outlook and Calendar connected");
+
+    await sendWhatsApp(`whatsapp:${phone}`, "✅ Microsoft Outlook and Calendar connected! I can now manage your email and schedule.\n\nTry: \"Check my email\" or \"What's on my calendar today?\"");
+
+    res.send(`
+      <!DOCTYPE html>
+      <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+      <title>Connected!</title>
+      <style>
+        body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #f0fdf4; }
+        .card { text-align: center; padding: 3rem; max-width: 400px; }
+        h1 { color: #16a34a; font-size: 2rem; }
+        p { color: #666; font-size: 1.1rem; line-height: 1.6; }
+        .check { font-size: 4rem; margin-bottom: 1rem; }
+      </style></head>
+      <body><div class="card">
+        <div class="check">✅</div>
+        <h1>Microsoft Connected!</h1>
+        <p>Outlook and Calendar are now linked to Umar. Go back to WhatsApp and try: <strong>"Check my email"</strong></p>
+      </div></body></html>
+    `);
+  } catch (err) {
+    console.error("Microsoft OAuth error:", err);
+    res.status(500).send("Something went wrong connecting Microsoft. Please try again from WhatsApp by typing 'connect'.");
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
 // CONNECT PAGE — Web page for managing connections
 // ═══════════════════════════════════════════════════════════════
 app.get("/connect", (req, res) => {
   const phone = req.query.phone || "";
-  const authUrl = getGoogleAuthUrl(phone);
+  const googleAuthUrl = getGoogleAuthUrl(phone);
+  const msAuthUrl = process.env.MICROSOFT_CLIENT_ID 
+    ? require("./tools/microsoft").getMicrosoftAuthUrl(phone)
+    : null;
 
   res.send(`
     <!DOCTYPE html>
     <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Connect Your Accounts — Handled</title>
+    <title>Connect Your Accounts — Umar</title>
     <style>
-      body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #fafafa; }
-      .card { text-align: center; padding: 2rem; max-width: 420px; background: white; border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }
-      h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
-      p { color: #666; margin-bottom: 2rem; }
-      .btn { display: block; padding: 1rem 2rem; margin: 1rem auto; background: #4285f4; color: white; text-decoration: none; border-radius: 12px; font-size: 1.1rem; font-weight: 600; width: 80%; }
-      .btn:hover { background: #3367d6; }
-      .secure { font-size: 0.85rem; color: #999; margin-top: 2rem; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #0a0a0a; color: #fff; }
+      .card { text-align: center; padding: 2.5rem; max-width: 420px; background: #1a1a1a; border-radius: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
+      h1 { font-size: 1.6rem; margin-bottom: 0.5rem; }
+      .sub { color: #888; margin-bottom: 2rem; font-size: 0.95rem; }
+      .btn { display: flex; align-items: center; justify-content: center; gap: 0.75rem; padding: 1rem 1.5rem; margin: 0.75rem auto; text-decoration: none; border-radius: 14px; font-size: 1.05rem; font-weight: 600; width: 100%; transition: transform 0.2s, opacity 0.2s; }
+      .btn:hover { transform: translateY(-2px); opacity: 0.9; }
+      .btn-google { background: #4285f4; color: white; }
+      .btn-microsoft { background: #00a4ef; color: white; }
+      .divider { color: #555; margin: 1.5rem 0; font-size: 0.85rem; }
+      .secure { font-size: 0.8rem; color: #666; margin-top: 2rem; line-height: 1.5; }
+      .emoji { font-size: 1.3rem; }
     </style></head>
     <body><div class="card">
-      <h1>🤖 Connect Your Accounts</h1>
-      <p>Link your Gmail and Calendar so your AI agent can manage them.</p>
-      <a href="${authUrl}" class="btn">🔗 Connect with Google</a>
-      <p class="secure">🔒 We use Google's official sign-in. Your password is never shared with us. You can disconnect anytime.</p>
+      <h1>🤖 Connect to Umar</h1>
+      <p class="sub">Link your email and calendar so Umar can manage them for you.</p>
+      
+      <a href="${googleAuthUrl}" class="btn btn-google">
+        <span class="emoji">📧</span> Connect Google (Gmail + Calendar)
+      </a>
+      
+      ${msAuthUrl ? `
+      <div class="divider">— or —</div>
+      <a href="${msAuthUrl}" class="btn btn-microsoft">
+        <span class="emoji">📬</span> Connect Microsoft (Outlook + Calendar)
+      </a>
+      ` : ''}
+      
+      <p class="secure">🔒 Uses official sign-in from Google/Microsoft.<br>Your password is never shared. You can disconnect anytime.</p>
     </div></body></html>
   `);
 });
@@ -281,7 +353,7 @@ app.get("/", (req, res) => {
   res.send(`
     <!DOCTYPE html>
     <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Handled — Your AI Agent on WhatsApp</title>
+    <title>Umar — Your AI Agent on WhatsApp</title>
     <meta name="description" content="An AI personal agent that lives in WhatsApp. It manages your email, calendar, and life. No app. No setup. Just text.">
     <style>
       * { margin:0; padding:0; box-sizing:border-box; }
@@ -307,7 +379,7 @@ app.get("/", (req, res) => {
     <body>
       <div class="hero">
         <h1>Your AI agent<br>lives in <span>WhatsApp</span></h1>
-        <p class="sub">Text it. It manages your email, calendar, reminders, and research. No app. No setup. No tech skills. Just add the number and start delegating.</p>
+        <p class="sub">Text him. He manages your email, calendar, reminders, and research. No app. No setup. No tech skills. Just add the number and start delegating.</p>
         <a href="https://wa.me/${waNumber}?text=Hi" class="cta">💬 Message on WhatsApp</a>
 
         <div class="features">
@@ -491,8 +563,8 @@ app.get("/health", (req, res) => {
 app.listen(PORT, () => {
   console.log(`
   ╔══════════════════════════════════════╗
-  ║   🤖 HANDLED is running on :${PORT}     ║
-  ║   WhatsApp AI Agent ready            ║
+  ║   🤖 UMAR is running on :${PORT}     ║
+  ║   Your AI Agent Umar is ready            ║
   ╚══════════════════════════════════════╝
   `);
 });
