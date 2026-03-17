@@ -398,7 +398,7 @@ app.get("/", (req, res) => {
           <div class="step"><div class="step-num">3</div><div class="step-text"><h4>Start delegating</h4><p>"Check my email." "What's on my calendar?" "Remind me to..." — it handles it.</p></div></div>
         </div>
 
-        <p class="footer">Free 7-day trial. Then $9.99/month. Cancel anytime.<br>Your data is encrypted. You can disconnect anytime.</p>
+        <p class="footer">Free 7-day trial. Then $9.99/month. Cancel anytime.<br><a href="/privacy" style="color:#888">Privacy Policy</a> · <a href="/terms" style="color:#888">Terms</a><br>Your data is encrypted. You can disconnect anytime.</p>
       </div>
     </body></html>
   `);
@@ -551,6 +551,8 @@ cron.schedule("0 0 * * *", async () => {
 // ═══════════════════════════════════════════════════════════════
 // HEALTH CHECK
 // ═══════════════════════════════════════════════════════════════
+app.get("/privacy", (req, res) => { res.send("<html><head><title>Privacy Policy - Umar</title><style>body{font-family:-apple-system,sans-serif;max-width:700px;margin:2rem auto;padding:1rem;color:#333}h1{color:#1a1a2e}</style></head><body><h1>Privacy Policy</h1><p>Last updated: March 2026</p><p>Umar is a WhatsApp-based AI assistant. We take your privacy seriously.</p><p><strong>What we access:</strong> Only the Gmail and Calendar data you explicitly authorize through Google OAuth. We never see your password.</p><p><strong>How we store data:</strong> OAuth tokens are encrypted with AES-256. Your conversations and memory are stored on secure servers.</p><p><strong>What we never do:</strong> We never sell your data, share it with third parties, or use it for advertising.</p><p><strong>Data deletion:</strong> Text us anytime to delete all your data.</p><p>Contact: mashruf@gmail.com</p></body></html>"); });
+app.get("/terms", (req, res) => { res.send("<html><head><title>Terms of Service - Umar</title><style>body{font-family:-apple-system,sans-serif;max-width:700px;margin:2rem auto;padding:1rem;color:#333}h1{color:#1a1a2e}</style></head><body><h1>Terms of Service</h1><p>Last updated: March 2026</p><p>By using Umar, you agree to these terms.</p><p><strong>Service:</strong> Umar is an AI assistant accessed via WhatsApp. Features may change as we improve the product.</p><p><strong>Your data:</strong> You own your data. We access Gmail and Calendar only with your permission.</p><p><strong>Acceptable use:</strong> Do not use Umar for illegal activities or to harm others.</p><p><strong>Liability:</strong> Umar is provided as-is. We are not responsible for actions taken based on AI recommendations.</p><p>Contact: mashruf@gmail.com</p></body></html>"); });
 app.get("/health", (req, res) => {
   const userCount = db.prepare("SELECT COUNT(*) as count FROM users").get().count;
   const paidCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE is_paid = 1").get().count;
