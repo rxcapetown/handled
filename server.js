@@ -32,7 +32,7 @@ async function sendWhatsApp(to, body) {
   const clean = body.replace(/[*_~`]/g, "").slice(0, 1500);
   try {
     await twilioClient.messages.create({
-      body: clean,
+      contentSid: 'HX025047a1fdcf2e472314db56db67f705',
       messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID, from: process.env.TWILIO_WHATSAPP_NUMBER,
       to: dest,
     });
