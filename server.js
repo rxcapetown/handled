@@ -80,11 +80,11 @@ app.post("/webhook/whatsapp", async (req, res) => {
 
     // WhatsApp has a 1600 char limit per message — split if needed
     if (reply.length <= 1600) {
-      await sendWhatsApp(from, reply);
+      await sendWhatsApp(from, reply.replace(/[*_~]/g, "").slice(0, 1000));
     } else {
       const chunks = reply.match(/.{1,1500}/gs) || [reply];
       for (const chunk of chunks) {
-        await sendWhatsApp(from, chunk);
+        await sendWhatsApp(from, chunk.replace(/[*_~]/g, "").slice(0, 1000));
         await new Promise((r) => setTimeout(r, 500)); // Small delay between chunks
       }
     }
