@@ -33,7 +33,7 @@ async function sendWhatsApp(to, body) {
   try {
     await twilioClient.messages.create({
       body: clean,
-      from: process.env.TWILIO_WHATSAPP_NUMBER,
+      messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID, from: process.env.TWILIO_WHATSAPP_NUMBER,
       to: dest,
     });
     console.log(`[Send OK] ${dest}`);
@@ -43,7 +43,7 @@ async function sendWhatsApp(to, body) {
     try {
       await twilioClient.messages.create({
         contentSid: "HX025047a1fdcf2e472314db56db67f705",
-        from: process.env.TWILIO_WHATSAPP_NUMBER,
+        messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID, from: process.env.TWILIO_WHATSAPP_NUMBER,
         to: dest,
       });
       console.log(`[Template OK] ${dest}`);
