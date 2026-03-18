@@ -27,14 +27,29 @@ app.use(express.static(path.join(__dirname, "public")));
 const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
 async function sendWhatsApp(to, body) {
+  const dest = to.startsWith("whatsapp:") ? to : `whatsapp:${to}`;
+  // Strip markdown formatting for WhatsApp Business API compatibility
+  const clean = body.replace(/[*_~`]/g, "").slice(0, 1500);
   try {
     await twilioClient.messages.create({
-      body,
+      body: clean,
       from: process.env.TWILIO_WHATSAPP_NUMBER,
-      to: to.startsWith("whatsapp:") ? to : `whatsapp:${to}`,
+      to: dest,
     });
+    console.log(`[Send OK] ${dest}`);
   } catch (err) {
-    console.error(`Failed to send WhatsApp to ${to}:`, err.message);
+    console.error(`[Send FAILED] ${dest}: ${err.message} code=${err.code}`);
+    // Fallback: send approved welcome template instead of nothing
+    try {
+      await twilioClient.messages.create({
+        contentSid: "HX025047a1fdcf2e472314db56db67f705",
+        from: process.env.TWILIO_WHATSAPP_NUMBER,
+        to: dest,
+      });
+      console.log(`[Template OK] ${dest}`);
+    } catch (err2) {
+      console.error(`[Template FAILED] ${dest}: ${err2.message}`);
+    }
   }
 }
 
@@ -45,7 +60,7 @@ app.post("/webhook/whatsapp", async (req, res) => {
   // Respond immediately so Twilio doesn't retry
   res.status(200).send("<Response></Response>");
 
-  const from = req.body.From; // whatsapp:+1234567890
+  const from = req.body.From;
   const body = (req.body.Body || "").trim();
   const phone = from.replace("whatsapp:", "");
 
@@ -63,39 +78,39 @@ app.post("/webhook/whatsapp", async (req, res) => {
 
     if (body.toLowerCase() === "connect" || body.toLowerCase() === "connect email" || body.toLowerCase() === "connect google") {
       const connectUrl = `${process.env.BASE_URL}/connect?phone=${encodeURIComponent(phone)}`;
-      await sendWhatsApp(from, `🔗 *Connect your accounts:*\n\n📧 Google (Gmail + Calendar):\n${connectUrl}\n\nTap the link above → Sign in with Google → Done! Takes 10 seconds.\n\n🔒 We use Google's official sign-in. Your password is never shared with us.`);
+      await sendWhatsApp(from, `Connect your accounts:\n\nGoogle (Gmail + Calendar):\n${connectUrl}\n\nTap the link above, sign in with Google, done! Takes 10 seconds.\n\nWe use Google's official sign-in. Your password is never shared with us.`);
       return;
     }
 
     if (body.toLowerCase() === "status") {
       const user = getOrCreateUser(phone);
       const active = isTrialActive(user);
-      const status = user.is_paid ? "Pro subscriber ✅" : active ? `Free trial (${require("./db").trialDaysLeft(user)} days left)` : "Trial expired";
-      await sendWhatsApp(from, `📊 Your status: ${status}\n\nType "connect" to link Gmail/Calendar\nType "upgrade" to subscribe`);
+      const status = user.is_paid ? "Pro subscriber" : active ? `Free trial (${require("./db").trialDaysLeft(user)} days left)` : "Trial expired";
+      await sendWhatsApp(from, `Your status: ${status}\n\nType "connect" to link Gmail/Calendar\nType "upgrade" to subscribe`);
       return;
     }
 
     // Process through AI agent
     const reply = await handleMessage(phone, body);
 
-    // WhatsApp has a 1600 char limit per message — split if needed
+    // WhatsApp has a 1600 char limit per message
     if (reply.length <= 1600) {
-      await sendWhatsApp(from, reply.replace(/[*_~]/g, "").slice(0, 1000));
+      await sendWhatsApp(from, reply);
     } else {
       const chunks = reply.match(/.{1,1500}/gs) || [reply];
       for (const chunk of chunks) {
-        await sendWhatsApp(from, chunk.replace(/[*_~]/g, "").slice(0, 1000));
-        await new Promise((r) => setTimeout(r, 500)); // Small delay between chunks
+        await sendWhatsApp(from, chunk);
+        await new Promise((r) => setTimeout(r, 500));
       }
     }
   } catch (err) {
     console.error(`[Agent Error] ${phone}:`, err);
-    await sendWhatsApp(from, "Sorry, I hit a temporary issue. Try again in a moment! 🙏");
+    await sendWhatsApp(from, "Sorry, I hit a temporary issue. Try again in a moment!");
   }
 });
 
 // ═══════════════════════════════════════════════════════════════
-// GOOGLE OAUTH CALLBACK — Handles the OAuth redirect from Google
+// GOOGLE OAUTH CALLBACK
 // ═══════════════════════════════════════════════════════════════
 app.get("/auth/google/callback", async (req, res) => {
   const { code, state: phone } = req.query;
@@ -117,11 +132,9 @@ app.get("/auth/google/callback", async (req, res) => {
 
     logActivity(phone, "connected_google", "Gmail and Calendar connected");
 
-    // Send confirmation via WhatsApp
     const from = `whatsapp:${phone}`;
-    await sendWhatsApp(from, "✅ Gmail and Calendar connected! I can now read your emails and manage your schedule.\n\nTry: \"Check my email\" or \"What's on my calendar today?\"");
+    await sendWhatsApp(from, "Gmail and Calendar connected! I can now read your emails and manage your schedule.\n\nTry: \"Check my email\" or \"What's on my calendar today?\"");
 
-    // Send a nice confirmation page
     res.send(`
       <!DOCTYPE html>
       <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -146,7 +159,7 @@ app.get("/auth/google/callback", async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// CONNECT PAGE — Web page for managing connections
+// CONNECT PAGE
 // ═══════════════════════════════════════════════════════════════
 app.get("/connect", (req, res) => {
   const phone = req.query.phone || "";
@@ -155,7 +168,7 @@ app.get("/connect", (req, res) => {
   res.send(`
     <!DOCTYPE html>
     <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Connect Your Accounts — Handled</title>
+    <title>Connect Your Accounts</title>
     <style>
       body { font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #fafafa; }
       .card { text-align: center; padding: 2rem; max-width: 420px; background: white; border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }
@@ -166,16 +179,16 @@ app.get("/connect", (req, res) => {
       .secure { font-size: 0.85rem; color: #999; margin-top: 2rem; }
     </style></head>
     <body><div class="card">
-      <h1>🤖 Connect Your Accounts</h1>
+      <h1>Connect Your Accounts</h1>
       <p>Link your Gmail and Calendar so your AI agent can manage them.</p>
-      <a href="${authUrl}" class="btn">🔗 Connect with Google</a>
-      <p class="secure">🔒 We use Google's official sign-in. Your password is never shared with us. You can disconnect anytime.</p>
+      <a href="${authUrl}" class="btn">Connect with Google</a>
+      <p class="secure">We use Google's official sign-in. Your password is never shared with us. You can disconnect anytime.</p>
     </div></body></html>
   `);
 });
 
 // ═══════════════════════════════════════════════════════════════
-// SUBSCRIBE PAGE — Redirect to Stripe Checkout
+// SUBSCRIBE PAGE
 // ═══════════════════════════════════════════════════════════════
 app.get("/subscribe", async (req, res) => {
   const phone = req.query.phone || "";
@@ -202,7 +215,7 @@ app.get("/subscribe/success", async (req, res) => {
   if (phone) {
     updateUser(phone, { is_paid: 1, plan: "standard" });
     logActivity(phone, "subscribed", "standard plan");
-    await sendWhatsApp(`whatsapp:${phone}`, "🎉 You're subscribed! Full access is back on. What would you like me to handle?");
+    await sendWhatsApp(`whatsapp:${phone}`, "You're subscribed! Full access is back on. What would you like me to handle?");
   }
   res.send(`
     <!DOCTYPE html>
@@ -231,7 +244,7 @@ app.get("/subscribe/cancel", (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// STRIPE WEBHOOK — Handles payment confirmations
+// STRIPE WEBHOOK
 // ═══════════════════════════════════════════════════════════════
 app.post("/webhook/stripe", async (req, res) => {
   const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
@@ -255,18 +268,17 @@ app.post("/webhook/stripe", async (req, res) => {
         stripe_customer_id: session.customer,
       });
       logActivity(phone, "payment_confirmed", `Stripe session ${session.id}`);
-      console.log(`[Stripe] ✅ User ${phone} subscribed`);
+      console.log(`[Stripe] User ${phone} subscribed`);
     }
   }
 
   if (event.type === "customer.subscription.deleted") {
     const sub = event.data.object;
-    // Find user by Stripe customer ID
     const user = db.prepare("SELECT phone FROM users WHERE stripe_customer_id = ?").get(sub.customer);
     if (user) {
       updateUser(user.phone, { is_paid: 0, plan: "cancelled" });
       logActivity(user.phone, "subscription_cancelled", null);
-      await sendWhatsApp(`whatsapp:${user.phone}`, "Your subscription has been cancelled. I'll still send you a morning briefing. Text \"upgrade\" anytime to resubscribe! 👋");
+      await sendWhatsApp(`whatsapp:${user.phone}`, "Your subscription has been cancelled. Text \"upgrade\" anytime to resubscribe!");
     }
   }
 
@@ -308,22 +320,22 @@ app.get("/", (req, res) => {
       <div class="hero">
         <h1>Your AI agent<br>lives in <span>WhatsApp</span></h1>
         <p class="sub">Text it. It manages your email, calendar, reminders, and research. No app. No setup. No tech skills. Just add the number and start delegating.</p>
-        <a href="https://wa.me/${waNumber}?text=Hi" class="cta">💬 Message on WhatsApp</a>
+        <a href="https://wa.me/${waNumber}?text=Hi" class="cta">Message on WhatsApp</a>
 
         <div class="features">
-          <div class="feat"><h3>📧 Email</h3><p>Summarizes your inbox. Drafts replies. Flags what matters.</p></div>
-          <div class="feat"><h3>📅 Calendar</h3><p>Shows your schedule. Books meetings. Finds free time.</p></div>
-          <div class="feat"><h3>⏰ Reminders</h3><p>"Remind me to call Dr. Patel Thursday" — done.</p></div>
-          <div class="feat"><h3>🔍 Research</h3><p>"Find cheap flights to Dhaka in June" — answers in seconds.</p></div>
-          <div class="feat"><h3>☀️ Daily Briefing</h3><p>Every morning: your emails, schedule, and reminders in one text.</p></div>
-          <div class="feat"><h3>🌍 Any Language</h3><p>Text in English, Bangla, Hindi, Spanish, Arabic — it responds in yours.</p></div>
+          <div class="feat"><h3>Email</h3><p>Summarizes your inbox. Drafts replies. Flags what matters.</p></div>
+          <div class="feat"><h3>Calendar</h3><p>Shows your schedule. Books meetings. Finds free time.</p></div>
+          <div class="feat"><h3>Reminders</h3><p>"Remind me to call Dr. Patel Thursday" - done.</p></div>
+          <div class="feat"><h3>Research</h3><p>"Find cheap flights to Dhaka in June" - answers in seconds.</p></div>
+          <div class="feat"><h3>Daily Briefing</h3><p>Every morning: your emails, schedule, and reminders in one text.</p></div>
+          <div class="feat"><h3>Any Language</h3><p>Text in English, Bangla, Hindi, Spanish, Arabic - it responds in yours.</p></div>
         </div>
 
         <div class="how">
           <h2>How it works</h2>
           <div class="step"><div class="step-num">1</div><div class="step-text"><h4>Add the number</h4><p>Save it to your contacts or tap the button above.</p></div></div>
           <div class="step"><div class="step-num">2</div><div class="step-text"><h4>Connect your email</h4><p>Tap one link to securely connect Gmail. Uses Google's official sign-in.</p></div></div>
-          <div class="step"><div class="step-num">3</div><div class="step-text"><h4>Start delegating</h4><p>"Check my email." "What's on my calendar?" "Remind me to..." — it handles it.</p></div></div>
+          <div class="step"><div class="step-num">3</div><div class="step-text"><h4>Start delegating</h4><p>"Check my email." "What's on my calendar?" "Remind me to..." - it handles it.</p></div></div>
         </div>
 
         <p class="footer">Free 7-day trial. Then $9.99/month. Cancel anytime.<br>Your data is encrypted. You can disconnect anytime.</p>
@@ -333,7 +345,7 @@ app.get("/", (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// CRON JOBS — Daily briefings and reminders
+// CRON JOBS
 // ═══════════════════════════════════════════════════════════════
 
 // Check for due reminders every 5 minutes
@@ -341,7 +353,7 @@ cron.schedule("*/5 * * * *", async () => {
   const reminders = getDueReminders();
   for (const r of reminders) {
     try {
-      await sendWhatsApp(`whatsapp:${r.phone}`, `⏰ Reminder: ${r.task}`);
+      await sendWhatsApp(`whatsapp:${r.phone}`, `Reminder: ${r.task}`);
       markReminderSent(r.id);
       logActivity(r.phone, "reminder_sent", r.task);
     } catch (err) {
@@ -375,18 +387,18 @@ cron.schedule("0 17 * * *", async () => {
       const userData = getOrCreateUser(user.phone);
       const parts = [];
       const name = userData.name || "";
-      parts.push(`☀️ Midday check-in${name ? `, ${name}` : ""}!\n`);
+      parts.push(`Midday check-in${name ? `, ${name}` : ""}!\n`);
 
       if (hasProvider(user.phone, "google")) {
         try {
           const emailResult = await googleTools.listEmails(user.phone, "is:unread newer_than:4h", 5);
           if (emailResult.emails && emailResult.emails.length > 0) {
-            parts.push(`📧 *${emailResult.emails.length} new emails since this morning:*`);
+            parts.push(`${emailResult.emails.length} new emails since this morning:`);
             emailResult.emails.forEach((e, i) => {
-              parts.push(`${i + 1}. ${e.from.split("<")[0].trim()} — ${e.subject}`);
+              parts.push(`${i + 1}. ${e.from.split("<")[0].trim()} - ${e.subject}`);
             });
           } else {
-            parts.push("📧 No new emails since this morning.");
+            parts.push("No new emails since this morning.");
           }
         } catch (e) { /* skip */ }
 
@@ -396,13 +408,13 @@ cron.schedule("0 17 * * *", async () => {
           endOfDay.setHours(23, 59, 59);
           const eventResult = await googleTools.listEvents(user.phone, now.toISOString(), endOfDay.toISOString());
           if (eventResult.events && eventResult.events.length > 0) {
-            parts.push(`\n📅 *Rest of today:*`);
+            parts.push(`\nRest of today:`);
             eventResult.events.forEach((e) => {
               const time = new Date(e.start).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-              parts.push(`• ${time} — ${e.summary}`);
+              parts.push(`${time} - ${e.summary}`);
             });
           } else {
-            parts.push("\n📅 Nothing else on the calendar today.");
+            parts.push("\nNothing else on the calendar today.");
           }
         } catch (e) { /* skip */ }
       }
@@ -416,7 +428,7 @@ cron.schedule("0 17 * * *", async () => {
   }
 });
 
-// Evening wrap-up at 7 PM Central (12 AM UTC next day = 0 UTC)
+// Evening wrap-up at 7 PM Central (0 UTC)
 cron.schedule("0 0 * * *", async () => {
   console.log("[Cron] Sending evening wrap-ups...");
   const users = db.prepare("SELECT phone FROM users WHERE is_paid = 1 OR trial_start > datetime('now', '-7 days')").all();
@@ -426,18 +438,18 @@ cron.schedule("0 0 * * *", async () => {
       const userData = getOrCreateUser(user.phone);
       const parts = [];
       const name = userData.name || "";
-      parts.push(`🌙 Evening wrap-up${name ? `, ${name}` : ""}!\n`);
+      parts.push(`Evening wrap-up${name ? `, ${name}` : ""}!\n`);
 
       if (hasProvider(user.phone, "google")) {
         try {
           const emailResult = await googleTools.listEmails(user.phone, "is:unread", 3);
           if (emailResult.emails && emailResult.emails.length > 0) {
-            parts.push(`📧 *${emailResult.emails.length} unread emails to deal with:*`);
+            parts.push(`${emailResult.emails.length} unread emails to deal with:`);
             emailResult.emails.forEach((e, i) => {
-              parts.push(`${i + 1}. ${e.from.split("<")[0].trim()} — ${e.subject}`);
+              parts.push(`${i + 1}. ${e.from.split("<")[0].trim()} - ${e.subject}`);
             });
           } else {
-            parts.push("📧 Inbox clear! Nice work today.");
+            parts.push("Inbox clear! Nice work today.");
           }
         } catch (e) { /* skip */ }
 
@@ -449,25 +461,24 @@ cron.schedule("0 0 * * *", async () => {
           tomorrowEnd.setHours(23, 59, 59);
           const eventResult = await googleTools.listEvents(user.phone, tomorrow.toISOString(), tomorrowEnd.toISOString());
           if (eventResult.events && eventResult.events.length > 0) {
-            parts.push(`\n📅 *Tomorrow's schedule:*`);
+            parts.push(`\nTomorrow's schedule:`);
             eventResult.events.forEach((e) => {
               const time = new Date(e.start).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-              parts.push(`• ${time} — ${e.summary}`);
+              parts.push(`${time} - ${e.summary}`);
             });
           } else {
-            parts.push("\n📅 Nothing on tomorrow's calendar. Rest up!");
+            parts.push("\nNothing on tomorrow's calendar. Rest up!");
           }
         } catch (e) { /* skip */ }
       }
 
-      const { getDueReminders } = require("./db");
       const allReminders = db.prepare("SELECT * FROM reminders WHERE phone = ? AND sent = 0").all(user.phone);
       if (allReminders.length > 0) {
-        parts.push(`\n⏰ *Pending reminders:*`);
-        allReminders.forEach((r) => parts.push(`• ${r.task}`));
+        parts.push(`\nPending reminders:`);
+        allReminders.forEach((r) => parts.push(`- ${r.task}`));
       }
 
-      parts.push("\nGoodnight! I'll have your briefing ready in the morning. 💤");
+      parts.push("\nGoodnight! I'll have your briefing ready in the morning.");
       await sendWhatsApp(`whatsapp:${user.phone}`, parts.join("\n"));
       await new Promise((r) => setTimeout(r, 1000));
     } catch (err) {
@@ -491,7 +502,7 @@ app.get("/health", (req, res) => {
 app.listen(PORT, () => {
   console.log(`
   ╔══════════════════════════════════════╗
-  ║   🤖 HANDLED is running on :${PORT}     ║
+  ║   HANDLED is running on :${PORT}     ║
   ║   WhatsApp AI Agent ready            ║
   ╚══════════════════════════════════════╝
   `);
