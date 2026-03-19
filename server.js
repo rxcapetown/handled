@@ -1,4 +1,4 @@
-// server.js — Main Express server for Handled
+// server.js — Main Express server for Umar
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
@@ -293,7 +293,7 @@ app.get("/", (req, res) => {
   res.send(`
     <!DOCTYPE html>
     <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Handled — Your AI Agent on WhatsApp</title>
+    <title>Umar — Your AI Agent on WhatsApp</title>
     <meta name="description" content="An AI personal agent that lives in WhatsApp. It manages your email, calendar, and life. No app. No setup. Just text.">
     <style>
       * { margin:0; padding:0; box-sizing:border-box; }
@@ -502,7 +502,7 @@ app.get("/health", (req, res) => {
 app.listen(PORT, () => {
   console.log(`
   ╔══════════════════════════════════════╗
-  ║   HANDLED is running on :${PORT}     ║
+  ║   UMAR is running on :${PORT}     ║
   ║   WhatsApp AI Agent ready            ║
   ╚══════════════════════════════════════╝
   `);
