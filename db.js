@@ -273,6 +273,10 @@ function addScheduledBriefing(phone, prompt, hour, minute) {
   db.prepare("INSERT INTO scheduled_briefings (phone, briefing_prompt, schedule_hour, schedule_minute) VALUES (?, ?, ?, ?)").run(phone, prompt, hour, minute || 0);
 }
 
+function getAllScheduledBriefings() {
+  return db.prepare("SELECT sb.*, u.timezone, u.phone, u.name FROM scheduled_briefings sb JOIN users u ON sb.phone = u.phone WHERE sb.enabled = 1").all();
+}
+
 function getScheduledBriefings(phone) {
   return db.prepare("SELECT * FROM scheduled_briefings WHERE phone = ? AND enabled = 1").all(phone);
 }
@@ -313,6 +317,7 @@ module.exports = {
   incrementDailyMessageCount,
   addScheduledBriefing,
   getScheduledBriefings,
+  getAllScheduledBriefings,
   getAllDueBriefings,
   removeScheduledBriefings,
   markBriefingSent,
