@@ -3,6 +3,7 @@ const Anthropic = require("@anthropic-ai/sdk");
 const {
   getOrCreateUser, isTrialActive, trialDaysLeft, hasProvider,
   getMemory, addMessage, getRecentMessages, setMemory, addReminder, logActivity,
+  getDailyMessageCount, incrementDailyMessageCount, updateUser, addScheduledBriefing, getScheduledBriefings, removeScheduledBriefings,
 } = require("./db");
 const google = require("./tools/google");
 
@@ -103,6 +104,29 @@ const TOOLS = [
       },
       required: ["query"]
     }
+  },
+  {
+    name: "schedule_briefing",
+    description: "Schedule a recurring daily briefing for the user. Use when the user asks for daily updates, news briefings, email summaries, or any recurring information delivery. The user specifies what they want and when.",
+    input_schema: {
+      type: "object",
+      properties: {
+        briefing_prompt: { type: "string", description: "What the user wants in their briefing. E.g. 'tech news summary', 'email and calendar overview', 'stock market update for AAPL and TSLA', 'weather in Dubai and prayer times'" },
+        hour: { type: "number", description: "Hour to send (0-23 in user's local time). E.g. 7 for 7 AM, 19 for 7 PM" },
+        minute: { type: "number", description: "Minute to send (0-59). Default 0." }
+      },
+      required: ["briefing_prompt", "hour"]
+    }
+  },
+  {
+    name: "list_briefings",
+    description: "List the user's currently scheduled briefings. Use when user asks what briefings they have set up.",
+    input_schema: { type: "object", properties: {} }
+  },
+  {
+    name: "cancel_briefings",
+    description: "Cancel all scheduled briefings for the user. Use when user wants to stop receiving briefings.",
+    input_schema: { type: "object", properties: {} }
   }
 ];
 
@@ -165,6 +189,24 @@ async function executeTool(phone, toolName, toolInput) {
       }
     }
 
+    case "schedule_briefing": {
+      addScheduledBriefing(phone, toolInput.briefing_prompt, toolInput.hour, toolInput.minute || 0);
+      logActivity(phone, "schedule_briefing", toolInput.briefing_prompt);
+      return { success: true, briefing: toolInput.briefing_prompt, time: `${toolInput.hour}:${String(toolInput.minute || 0).padStart(2, '0')}` };
+    }
+
+    case "list_briefings": {
+      const briefings = getScheduledBriefings(phone);
+      if (briefings.length === 0) return { briefings: [], message: "No briefings scheduled." };
+      return { briefings: briefings.map(b => ({ prompt: b.briefing_prompt, time: `${b.schedule_hour}:${String(b.schedule_minute).padStart(2, '0')}` })) };
+    }
+
+    case "cancel_briefings": {
+      removeScheduledBriefings(phone);
+      logActivity(phone, "cancel_briefings", null);
+      return { success: true, message: "All briefings cancelled." };
+    }
+
     default:
       return { error: `Unknown tool: ${toolName}` };
   }
@@ -205,6 +247,7 @@ IMPORTANT RULES:
 - Be proactive: if you notice something important (urgent email, upcoming meeting), mention it.
 - Speak the user's language. If they text in Bangla, respond in Bangla. If Spanish, respond in Spanish.
 - Never mention that you're powered by Claude, OpenClaw, or any technical details. You are "Umar."
+- You can schedule recurring daily briefings for the user. If they say something like "send me tech news every morning" or "give me an email summary at 7am and 7pm", use the schedule_briefing tool. Let them know they can customize what they receive and when.
 - For flights, hotels, shopping, products, restaurants, news — use the web_search tool. ALWAYS include direct clickable URLs so the user can tap and buy or book immediately. Format each link on its own line so they are tappable in WhatsApp.
 - When a NEW user says "hi" or "hello" for the first time (no name in memory), introduce yourself warmly and ask their name. Then offer to connect their accounts using the connect page URL.
 
@@ -237,6 +280,13 @@ ${process.env.BASE_URL}/subscribe?phone=${encodeURIComponent(phone)}
 
 I'll still send you a morning briefing for free — but I can't manage your email or calendar until you subscribe. Just text "upgrade" whenever you're ready!`;
   }
+
+  // Check daily message limit
+  const dailyCount = getDailyMessageCount(phone);
+  if (dailyCount >= 20) {
+    return "You have reached your daily limit of 20 messages. Your limit resets at midnight. Text \"upgrade\" for higher limits!";
+  }
+  incrementDailyMessageCount(phone);
 
   // Save incoming message
   addMessage(phone, "user", messageText);

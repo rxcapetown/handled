@@ -8,6 +8,7 @@ const path = require("path");
 const {
   getOrCreateUser, updateUser, saveOAuthTokens, isTrialActive,
   getDueReminders, markReminderSent, logActivity, getActivity, db, hasProvider,
+  getAllDueBriefings, markBriefingSent,
 } = require("./db");
 const { handleMessage, generateBriefing } = require("./agent");
 const googleTools = require("./tools/google");

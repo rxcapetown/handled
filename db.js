@@ -71,6 +71,25 @@ db.exec(`
     detail TEXT,
     created_at TEXT DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS daily_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    phone TEXT NOT NULL,
+    date TEXT NOT NULL,
+    message_count INTEGER DEFAULT 0,
+    UNIQUE(phone, date)
+  );
+
+  CREATE TABLE IF NOT EXISTS scheduled_briefings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    phone TEXT NOT NULL,
+    briefing_prompt TEXT NOT NULL,
+    schedule_hour INTEGER NOT NULL,
+    schedule_minute INTEGER DEFAULT 0,
+    enabled INTEGER DEFAULT 1,
+    last_sent TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
 `);
 
 // ─── Encryption helpers for OAuth tokens ──────────────────────
@@ -237,6 +256,39 @@ function getActivity(phone, limit = 50) {
     .all(phone, limit);
 }
 
+// --- Daily usage helpers ---
+function getDailyMessageCount(phone) {
+  const today = new Date().toISOString().split('T')[0];
+  const row = db.prepare("SELECT message_count FROM daily_usage WHERE phone = ? AND date = ?").get(phone, today);
+  return row ? row.message_count : 0;
+}
+
+function incrementDailyMessageCount(phone) {
+  const today = new Date().toISOString().split('T')[0];
+  db.prepare("INSERT INTO daily_usage (phone, date, message_count) VALUES (?, ?, 1) ON CONFLICT(phone, date) DO UPDATE SET message_count = message_count + 1").run(phone, today);
+}
+
+// --- Scheduled briefing helpers ---
+function addScheduledBriefing(phone, prompt, hour, minute) {
+  db.prepare("INSERT INTO scheduled_briefings (phone, briefing_prompt, schedule_hour, schedule_minute) VALUES (?, ?, ?, ?)").run(phone, prompt, hour, minute || 0);
+}
+
+function getScheduledBriefings(phone) {
+  return db.prepare("SELECT * FROM scheduled_briefings WHERE phone = ? AND enabled = 1").all(phone);
+}
+
+function getAllDueBriefings() {
+  return db.prepare("SELECT sb.*, u.timezone, u.phone, u.name FROM scheduled_briefings sb JOIN users u ON sb.phone = u.phone WHERE sb.enabled = 1").all();
+}
+
+function removeScheduledBriefings(phone) {
+  db.prepare("DELETE FROM scheduled_briefings WHERE phone = ?").run(phone);
+}
+
+function markBriefingSent(id) {
+  db.prepare("UPDATE scheduled_briefings SET last_sent = datetime('now') WHERE id = ?").run(id);
+}
+
 module.exports = {
   db,
   encrypt,
@@ -257,4 +309,11 @@ module.exports = {
   markReminderSent,
   logActivity,
   getActivity,
+  getDailyMessageCount,
+  incrementDailyMessageCount,
+  addScheduledBriefing,
+  getScheduledBriefings,
+  getAllDueBriefings,
+  removeScheduledBriefings,
+  markBriefingSent,
 };
