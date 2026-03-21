@@ -363,128 +363,43 @@ cron.schedule("*/5 * * * *", async () => {
   }
 });
 
-// Daily briefings at 7 AM Central (12 PM UTC)
-cron.schedule("0 12 * * *", async () => {
-  console.log("[Cron] Sending morning briefings...");
-  const users = db.prepare("SELECT phone FROM users WHERE is_paid = 1 OR trial_start > datetime('now', '-7 days')").all();
-  for (const user of users) {
-    try {
-      const briefing = await generateBriefing(user.phone);
-      await sendWhatsApp(`whatsapp:${user.phone}`, briefing);
-      await new Promise((r) => setTimeout(r, 1000));
-    } catch (err) {
-      console.error(`Morning briefing failed for ${user.phone}:`, err.message);
-    }
-  }
-});
-
-// Noon check-in at 12 PM Central (5 PM UTC)
-cron.schedule("0 17 * * *", async () => {
-  console.log("[Cron] Sending noon check-ins...");
-  const users = db.prepare("SELECT phone FROM users WHERE is_paid = 1 OR trial_start > datetime('now', '-7 days')").all();
-  for (const user of users) {
-    try {
-      const { getOrCreateUser } = require("./db");
-      const userData = getOrCreateUser(user.phone);
-      const parts = [];
-      const name = userData.name || "";
-      parts.push(`Midday check-in${name ? `, ${name}` : ""}!\n`);
-
-      if (hasProvider(user.phone, "google")) {
-        try {
-          const emailResult = await googleTools.listEmails(user.phone, "is:unread newer_than:4h", 5);
-          if (emailResult.emails && emailResult.emails.length > 0) {
-            parts.push(`${emailResult.emails.length} new emails since this morning:`);
-            emailResult.emails.forEach((e, i) => {
-              parts.push(`${i + 1}. ${e.from.split("<")[0].trim()} - ${e.subject}`);
-            });
-          } else {
-            parts.push("No new emails since this morning.");
-          }
-        } catch (e) { /* skip */ }
-
-        try {
-          const now = new Date();
-          const endOfDay = new Date(now);
-          endOfDay.setHours(23, 59, 59);
-          const eventResult = await googleTools.listEvents(user.phone, now.toISOString(), endOfDay.toISOString());
-          if (eventResult.events && eventResult.events.length > 0) {
-            parts.push(`\nRest of today:`);
-            eventResult.events.forEach((e) => {
-              const time = new Date(e.start).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-              parts.push(`${time} - ${e.summary}`);
-            });
-          } else {
-            parts.push("\nNothing else on the calendar today.");
-          }
-        } catch (e) { /* skip */ }
+// Scheduled briefings - runs every 15 minutes, checks each user's opted-in briefings
+// Users opt in by texting Umar: "Send me a morning briefing at 7am"
+// Respects each user's timezone
+cron.schedule("*/15 * * * *", async () => {
+  try {
+    const { getAllScheduledBriefings, markBriefingSent } = require("./db");
+    const allBriefings = getAllScheduledBriefings();
+    
+    for (const briefing of allBriefings) {
+      try {
+        const tz = briefing.timezone || "America/Chicago";
+        const now = new Date();
+        const userTime = new Date(now.toLocaleString("en-US", { timeZone: tz }));
+        const userHour = userTime.getHours();
+        const userMinute = userTime.getMinutes();
+        
+        // Check if it is time for this briefing (within 15 min window)
+        if (userHour === briefing.schedule_hour && userMinute >= (briefing.schedule_minute || 0) && userMinute < (briefing.schedule_minute || 0) + 15) {
+          // Check if already sent today
+          const today = now.toISOString().split("T")[0];
+          if (briefing.last_sent && briefing.last_sent.startsWith(today)) continue;
+          
+          console.log(`[Briefing] Sending to ${briefing.phone} (${tz}, ${userHour}:${userMinute})`);
+          
+          // Generate briefing based on what user requested
+          const content = await generateBriefing(briefing.phone);
+          await sendWhatsApp(`whatsapp:${briefing.phone}`, content);
+          markBriefingSent(briefing.id);
+          
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      } catch (err) {
+        console.error(`Briefing failed for ${briefing.phone}:`, err.message);
       }
-
-      parts.push("\nNeed me to handle anything?");
-      await sendWhatsApp(`whatsapp:${user.phone}`, parts.join("\n"));
-      await new Promise((r) => setTimeout(r, 1000));
-    } catch (err) {
-      console.error(`Noon check-in failed for ${user.phone}:`, err.message);
     }
-  }
-});
-
-// Evening wrap-up at 7 PM Central (0 UTC)
-cron.schedule("0 0 * * *", async () => {
-  console.log("[Cron] Sending evening wrap-ups...");
-  const users = db.prepare("SELECT phone FROM users WHERE is_paid = 1 OR trial_start > datetime('now', '-7 days')").all();
-  for (const user of users) {
-    try {
-      const { getOrCreateUser } = require("./db");
-      const userData = getOrCreateUser(user.phone);
-      const parts = [];
-      const name = userData.name || "";
-      parts.push(`Evening wrap-up${name ? `, ${name}` : ""}!\n`);
-
-      if (hasProvider(user.phone, "google")) {
-        try {
-          const emailResult = await googleTools.listEmails(user.phone, "is:unread", 3);
-          if (emailResult.emails && emailResult.emails.length > 0) {
-            parts.push(`${emailResult.emails.length} unread emails to deal with:`);
-            emailResult.emails.forEach((e, i) => {
-              parts.push(`${i + 1}. ${e.from.split("<")[0].trim()} - ${e.subject}`);
-            });
-          } else {
-            parts.push("Inbox clear! Nice work today.");
-          }
-        } catch (e) { /* skip */ }
-
-        try {
-          const tomorrow = new Date();
-          tomorrow.setDate(tomorrow.getDate() + 1);
-          tomorrow.setHours(0, 0, 0, 0);
-          const tomorrowEnd = new Date(tomorrow);
-          tomorrowEnd.setHours(23, 59, 59);
-          const eventResult = await googleTools.listEvents(user.phone, tomorrow.toISOString(), tomorrowEnd.toISOString());
-          if (eventResult.events && eventResult.events.length > 0) {
-            parts.push(`\nTomorrow's schedule:`);
-            eventResult.events.forEach((e) => {
-              const time = new Date(e.start).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-              parts.push(`${time} - ${e.summary}`);
-            });
-          } else {
-            parts.push("\nNothing on tomorrow's calendar. Rest up!");
-          }
-        } catch (e) { /* skip */ }
-      }
-
-      const allReminders = db.prepare("SELECT * FROM reminders WHERE phone = ? AND sent = 0").all(user.phone);
-      if (allReminders.length > 0) {
-        parts.push(`\nPending reminders:`);
-        allReminders.forEach((r) => parts.push(`- ${r.task}`));
-      }
-
-      parts.push("\nGoodnight! I'll have your briefing ready in the morning.");
-      await sendWhatsApp(`whatsapp:${user.phone}`, parts.join("\n"));
-      await new Promise((r) => setTimeout(r, 1000));
-    } catch (err) {
-      console.error(`Evening wrap-up failed for ${user.phone}:`, err.message);
-    }
+  } catch (err) {
+    console.error("[Cron] Briefing scheduler error:", err.message);
   }
 });
 
