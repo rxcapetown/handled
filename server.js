@@ -404,6 +404,14 @@ cron.schedule("*/15 * * * *", async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+
+// Admin: list all users (protected by simple secret)
+app.get("/admin/users", (req, res) => {
+  if (req.query.key !== process.env.SESSION_SECRET) return res.status(403).json({error: "unauthorized"});
+  const users = db.prepare("SELECT phone, name, timezone, created_at FROM users ORDER BY created_at DESC").all();
+  res.json(users);
+});
+
 // HEALTH CHECK
 // ═══════════════════════════════════════════════════════════════
 app.get("/health", (req, res) => {
