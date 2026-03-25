@@ -75,6 +75,13 @@ app.post("/webhook/whatsapp", async (req, res) => {
   // Handle voice notes
   if (numMedia > 0 && mediaType.startsWith("audio/")) {
     console.log(`[WhatsApp] ${phone}: [Voice Note]`);
+      // Check voice note daily limit
+      const voiceCount = getDailyVoiceCount(phone);
+      if (voiceCount >= 5) {
+        await sendWhatsApp(from, "You have used all 5 voice notes for today. Your limit will renew at 12:00 AM. You can still type your messages!");
+        return;
+      }
+      incrementDailyVoiceCount(phone);
     try {
       const fetch = require("node-fetch");
       const audioRes = await fetch(mediaUrl, {

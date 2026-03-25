@@ -77,6 +77,7 @@ db.exec(`
     phone TEXT NOT NULL,
     date TEXT NOT NULL,
     message_count INTEGER DEFAULT 0,
+    voice_count INTEGER DEFAULT 0,
     UNIQUE(phone, date)
   );
 
@@ -263,6 +264,17 @@ function getDailyMessageCount(phone) {
   return row ? row.message_count : 0;
 }
 
+function getDailyVoiceCount(phone) {
+  const today = new Date().toISOString().split("T")[0];
+  const row = db.prepare("SELECT voice_count FROM daily_usage WHERE phone = ? AND date = ?").get(phone, today);
+  return row ? row.voice_count : 0;
+}
+
+function incrementDailyVoiceCount(phone) {
+  const today = new Date().toISOString().split("T")[0];
+  db.prepare("INSERT INTO daily_usage (phone, date, voice_count) VALUES (?, ?, 1) ON CONFLICT(phone, date) DO UPDATE SET voice_count = voice_count + 1").run(phone, today);
+}
+
 function incrementDailyMessageCount(phone) {
   const today = new Date().toISOString().split('T')[0];
   db.prepare("INSERT INTO daily_usage (phone, date, message_count) VALUES (?, ?, 1) ON CONFLICT(phone, date) DO UPDATE SET message_count = message_count + 1").run(phone, today);
@@ -315,6 +327,8 @@ module.exports = {
   getActivity,
   getDailyMessageCount,
   incrementDailyMessageCount,
+  getDailyVoiceCount,
+  incrementDailyVoiceCount,
   addScheduledBriefing,
   getScheduledBriefings,
   getAllScheduledBriefings,
