@@ -171,7 +171,7 @@ async function executeTool(phone, toolName, toolInput) {
       try {
         // Use Claude with web search tool to get real-time results
         const searchResponse = await client.messages.create({
-          model: "claude-sonnet-4-20250514",
+          model: "claude-haiku-4-5-20251001",
           max_tokens: 1024,
           tools: [{ type: "web_search_20250305", name: "web_search" }],
           messages: [{ role: "user", content: `Search the web for: ${toolInput.query}. Return a concise summary of the top results with specific details like prices, dates, links, and ratings where available.` }],
@@ -351,7 +351,7 @@ I'll still send you a morning briefing for free — but I can't manage your emai
   try {
     // Call Claude with tools
     let response = await client.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 1024,
       system: systemPrompt,
       tools: availableTools.length > 0 ? availableTools : undefined,
@@ -379,7 +379,7 @@ I'll still send you a morning briefing for free — but I can't manage your emai
       messages.push({ role: "user", content: toolResults });
 
       response = await client.messages.create({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-haiku-4-5-20251001",
         max_tokens: 1024,
         system: systemPrompt,
         tools: availableTools,
