@@ -11,6 +11,10 @@ const {
   getAllDueBriefings, markBriefingSent,
 } = require("./db");
 const { handleMessage, generateBriefing } = require("./agent");
+const OpenAI = require("openai");
+const fs = require("fs");
+const os = require("os");
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const googleTools = require("./tools/google");
 const { getOAuth2Client, getGoogleAuthUrl } = googleTools;
 
