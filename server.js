@@ -68,6 +68,53 @@ app.post("/webhook/whatsapp", async (req, res) => {
   const from = req.body.From;
   const body = (req.body.Body || "").trim();
   const phone = from.replace("whatsapp:", "");
+  const numMedia = parseInt(req.body.NumMedia || "0", 10);
+  const mediaType = req.body.MediaContentType0 || "";
+  const mediaUrl = req.body.MediaUrl0 || "";
+
+  // Handle voice notes
+  if (numMedia > 0 && mediaType.startsWith("audio/")) {
+    console.log(`[WhatsApp] ${phone}: [Voice Note]`);
+    try {
+      const fetch = require("node-fetch");
+      const audioRes = await fetch(mediaUrl, {
+        headers: { Authorization: "Basic " + Buffer.from(process.env.TWILIO_ACCOUNT_SID + ":" + process.env.TWILIO_AUTH_TOKEN).toString("base64") }
+      });
+      const audioBuffer = await audioRes.buffer();
+      const tmpPath = path.join(os.tmpdir(), "voice_" + Date.now() + ".ogg");
+      fs.writeFileSync(tmpPath, audioBuffer);
+
+      const transcription = await openai.audio.transcriptions.create({
+        file: fs.createReadStream(tmpPath),
+        model: "whisper-1",
+      });
+      fs.unlinkSync(tmpPath);
+
+      const voiceText = (transcription.text || "").trim();
+      console.log(`[Voice] ${phone}: ${voiceText}`);
+
+      if (!voiceText) {
+        await sendWhatsApp(from, "I could not understand that voice note. Could you try again or type your message?");
+        return;
+      }
+
+      const reply = await handleMessage(phone, voiceText);
+      if (reply.length <= 1600) {
+        await sendWhatsApp(from, reply);
+      } else {
+        const chunks = reply.match(/.{1,1500}/gs) || [reply];
+        for (const chunk of chunks) {
+          await sendWhatsApp(from, chunk);
+          await new Promise((r) => setTimeout(r, 500));
+        }
+      }
+      return;
+    } catch (err) {
+      console.error(`[Voice Error] ${phone}:`, err.message);
+      await sendWhatsApp(from, "I had trouble with your voice note. Could you type your message instead?");
+      return;
+    }
+  }
 
   if (!body) return;
 
