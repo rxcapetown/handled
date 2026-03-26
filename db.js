@@ -140,7 +140,7 @@ function updateUser(phone, fields) {
 function isTrialActive(user) {
   if (user.is_paid) return true;
   if (!user.trial_start) return false;
-  const trialDays = parseInt(process.env.TRIAL_DAYS || "9999", 10);
+  const trialDays = 999999;
   const start = new Date(user.trial_start);
   const now = new Date();
   const diffDays = (now - start) / (1000 * 60 * 60 * 24);
@@ -148,7 +148,7 @@ function isTrialActive(user) {
 }
 
 function trialDaysLeft(user) {
-  const trialDays = parseInt(process.env.TRIAL_DAYS || "9999", 10);
+  const trialDays = 999999;
   const start = new Date(user.trial_start);
   const now = new Date();
   const diffDays = (now - start) / (1000 * 60 * 60 * 24);
