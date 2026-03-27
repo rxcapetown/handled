@@ -412,7 +412,7 @@ I'll still send you a morning briefing for free — but I can't manage your emai
   try {
     // Call Claude with tools
     let response = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
+      model: "claude-sonnet-4-20250514",
       max_tokens: 1024,
       system: systemPrompt,
       tools: availableTools.length > 0 ? availableTools : undefined,
@@ -440,7 +440,7 @@ I'll still send you a morning briefing for free — but I can't manage your emai
       messages.push({ role: "user", content: toolResults });
 
       response = await client.messages.create({
-        model: "claude-haiku-4-5-20251001",
+        model: "claude-sonnet-4-20250514",
         max_tokens: 1024,
         system: systemPrompt,
         tools: availableTools,
