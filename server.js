@@ -490,6 +490,15 @@ app.get("/terms", (req, res) => {
   res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Terms of Service - Umar AI</title><style>body{font-family:-apple-system,sans-serif;max-width:700px;margin:0 auto;padding:2rem 1.5rem;color:#333;line-height:1.8}h1{font-size:2rem}h2{font-size:1.3rem;margin-top:2rem;color:#128C7E}.updated{color:#999;font-size:0.9rem;margin-bottom:2rem}</style></head><body><h1>Terms of Service</h1><p class="updated">Last updated: March 2026</p><h2>Acceptance of terms</h2><p>By using Umar, you agree to these terms. If you do not agree, please stop using the service.</p><h2>Description of service</h2><p>Umar is an AI-powered personal assistant accessible through WhatsApp. Umar can help manage your email, calendar, reminders, and perform research tasks.</p><h2>Account and access</h2><p>You access Umar by sending a WhatsApp message. You may optionally connect your Google account to enable email and calendar features. You are responsible for maintaining the security of your connected accounts.</p><h2>Acceptable use</h2><p>You agree not to use Umar for any unlawful purpose, to send spam or unsolicited messages through Umar, to attempt to gain unauthorized access to other users data, or to interfere with or disrupt the service.</p><h2>AI limitations</h2><p>Umar is powered by artificial intelligence and may occasionally provide inaccurate information. You should verify important information independently. Umar is not a substitute for professional advice (legal, medical, financial, etc.).</p><h2>Data and privacy</h2><p>Your use of Umar is also governed by our <a href="/privacy">Privacy Policy</a>. By using Umar, you consent to the collection and use of information as described in the Privacy Policy.</p><h2>Service availability</h2><p>We strive to keep Umar available 24/7, but we do not guarantee uninterrupted service. We may modify or discontinue features with or without notice.</p><h2>Limitation of liability</h2><p>Umar is provided as is without warranties of any kind. We are not liable for any damages arising from your use of the service.</p><h2>Changes to terms</h2><p>We reserve the right to modify these terms at any time. Continued use of Umar after changes constitutes acceptance of the new terms.</p><h2>Contact</h2><p>For questions about these terms, please contact us by texting Umar on WhatsApp.</p></body></html>`);
 });
 
+
+// Debug: see pending reminders
+app.get("/debug/reminders", (req, res) => {
+  const pending = db.prepare("SELECT * FROM reminders WHERE sent = 0 ORDER BY due_at DESC LIMIT 10").all();
+  const now = new Date().toISOString();
+  const sqliteNow = db.prepare("SELECT datetime('now') as now").get();
+  res.json({ server_time: now, sqlite_now: sqliteNow.now, pending_reminders: pending });
+});
+
 // HEALTH CHECK
 // ═══════════════════════════════════════════════════════════════
 app.get("/health", (req, res) => {
