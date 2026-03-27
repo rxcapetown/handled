@@ -212,6 +212,42 @@ async function executeTool(phone, toolName, toolInput) {
   }
 }
 
+// ─── Auto-detect timezone from phone number ──────────────────
+function detectTimezone(phone) {
+  const tzMap = {
+    "+880": "Asia/Dhaka",
+    "+971": "Asia/Dubai",
+    "+966": "Asia/Riyadh",
+    "+974": "Asia/Qatar",
+    "+973": "Asia/Bahrain",
+    "+968": "Asia/Muscat",
+    "+965": "Asia/Kuwait",
+    "+44": "Europe/London",
+    "+91": "Asia/Kolkata",
+    "+92": "Asia/Karachi",
+    "+234": "Africa/Lagos",
+    "+254": "Africa/Nairobi",
+    "+55": "America/Sao_Paulo",
+    "+49": "Europe/Berlin",
+    "+33": "Europe/Paris",
+    "+61": "Australia/Sydney",
+    "+81": "Asia/Tokyo",
+    "+86": "Asia/Shanghai",
+    "+82": "Asia/Seoul",
+    "+63": "Asia/Manila",
+    "+60": "Asia/Kuala_Lumpur",
+    "+62": "Asia/Jakarta",
+    "+20": "Africa/Cairo",
+    "+27": "Africa/Johannesburg",
+    "+52": "America/Mexico_City",
+    "+1": "America/Chicago",
+  };
+  for (const [prefix, tz] of Object.entries(tzMap).sort((a, b) => b[0].length - a[0].length)) {
+    if (phone.startsWith(prefix)) return tz;
+  }
+  return "America/Chicago";
+}
+
 // ─── Build system prompt ──────────────────────────────────────
 function buildSystemPrompt(user, memories, hasGmail, hasCalendar) {
   const memoryBlock = memories.length > 0
@@ -305,6 +341,16 @@ CRITICAL RULES:
 // ─── Main agent function ──────────────────────────────────────
 async function handleMessage(phone, messageText) {
   const user = getOrCreateUser(phone);
+  
+  // Auto-detect timezone from phone number if still default
+  if (!user.timezone || user.timezone === "America/Chicago") {
+    const detected = detectTimezone(phone);
+    if (detected !== "America/Chicago" || phone.startsWith("+1")) {
+      const { updateUser } = require("./db");
+      updateUser(phone, { timezone: detected });
+      user.timezone = detected;
+    }
+  }
   const active = isTrialActive(user);
 
   // If trial expired and not paid — send conversion message
