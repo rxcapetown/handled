@@ -8,7 +8,7 @@ const path = require("path");
 const {
   getOrCreateUser, updateUser, saveOAuthTokens, isTrialActive,
   getDueReminders, markReminderSent, logActivity, getActivity, db, hasProvider,
-  getAllDueBriefings, markBriefingSent,
+  getDailyMessageCount, incrementDailyMessageCount, getDailyVoiceCount, incrementDailyVoiceCount,
 } = require("./db");
 const { handleMessage, generateBriefing } = require("./agent");
 const OpenAI = require("openai");
