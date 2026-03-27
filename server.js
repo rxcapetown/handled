@@ -127,6 +127,17 @@ app.post("/webhook/whatsapp", async (req, res) => {
 
   console.log(`[WhatsApp] ${phone}: ${body}`);
 
+    // Check daily message limit (skip for simple commands)
+    const lowerBody = body.toLowerCase();
+    if (!["upgrade", "subscribe", "connect", "connect email", "connect google", "status", "menu", "help", "?", "y", "n", "yes", "no", "1", "2"].includes(lowerBody)) {
+      const msgCount = getDailyMessageCount(phone);
+      if (msgCount >= 7) {
+        await sendWhatsApp(from, "You have used all 7 messages for today. Your limit will renew at 12:00 AM. See you tomorrow!");
+        return;
+      }
+      incrementDailyMessageCount(phone);
+    }
+
   try {
     // Handle quick commands
     if (body.toLowerCase() === "upgrade" || body.toLowerCase() === "subscribe") {
