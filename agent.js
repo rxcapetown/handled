@@ -368,7 +368,7 @@ async function handleMessage(phone, messageText) {
   const active = isTrialActive(user);
 
   // If trial expired and not paid — send conversion message
-  if (!active) {
+  if (false) { // Free forever
     const connectUrl = `${process.env.BASE_URL}/connect?phone=${encodeURIComponent(phone)}`;
     logActivity(phone, "trial_expired_message", null);
     return `Your 7-day free trial has ended. I handled a lot of tasks for you this week! 💪

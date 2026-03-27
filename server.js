@@ -130,8 +130,7 @@ app.post("/webhook/whatsapp", async (req, res) => {
   try {
     // Handle quick commands
     if (body.toLowerCase() === "upgrade" || body.toLowerCase() === "subscribe") {
-      const subUrl = `${process.env.BASE_URL}/subscribe?phone=${encodeURIComponent(phone)}`;
-      await sendWhatsApp(from, `Here's your subscription link! Tap to subscribe for $9.99/month:\n${subUrl}`);
+      await sendWhatsApp(from, "Umar is currently free! No subscription needed. Just keep using me.");
       return;
     }
 
@@ -145,7 +144,7 @@ app.post("/webhook/whatsapp", async (req, res) => {
       const user = getOrCreateUser(phone);
       const active = isTrialActive(user);
       const status = user.is_paid ? "Pro subscriber" : active ? `Free trial (${require("./db").trialDaysLeft(user)} days left)` : "Trial expired";
-      await sendWhatsApp(from, `Your status: ${status}\n\nType "connect" to link Gmail/Calendar\nType "upgrade" to subscribe`);
+      await sendWhatsApp(from, `Your status: ${status}\n\nType "connect" to link Gmail/Calendar\nType "menu" to see what I can do`);
       return;
     }
 
