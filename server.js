@@ -410,6 +410,7 @@ app.get("/", (req, res) => {
 // Check for due reminders every 5 minutes
 cron.schedule("*/5 * * * *", async () => {
   const reminders = getDueReminders();
+  console.log(`[Reminders] Checking... found ${reminders.length} due reminders at ${new Date().toISOString()}`);
   for (const r of reminders) {
     try {
       await sendWhatsApp(`whatsapp:${r.phone}`, `Reminder: ${r.task}`);
