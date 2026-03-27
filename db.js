@@ -231,11 +231,12 @@ function addReminder(phone, task, dueAt) {
 }
 
 function getDueReminders() {
+  const now = new Date().toISOString();
   return db
     .prepare(
-      "SELECT * FROM reminders WHERE sent = 0 AND due_at <= datetime('now')"
+      "SELECT * FROM reminders WHERE sent = 0 AND (due_at <= datetime('now') OR due_at <= ? OR replace(replace(due_at, 'T', ' '), 'Z', '') <= datetime('now'))"
     )
-    .all();
+    .all(now);
 }
 
 function markReminderSent(id) {
