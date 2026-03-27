@@ -158,10 +158,24 @@ async function executeTool(phone, toolName, toolInput) {
         location: toolInput.location,
       });
 
-    case "set_reminder":
-      addReminder(phone, toolInput.task, toolInput.due_at);
+    case "set_reminder": {
+      // Get user timezone for correct time conversion
+      const reminderUser = getOrCreateUser(phone);
+      const userTz = reminderUser.timezone || "America/Chicago";
+      
+      // Parse the due_at and ensure it is stored correctly
+      let dueDate = new Date(toolInput.due_at);
+      
+      // If the date seems invalid, try to interpret it
+      if (isNaN(dueDate.getTime())) {
+        return { error: "Could not understand the date/time. Please use a format like: 2026-03-27T14:00:00" };
+      }
+      
+      const dueAtISO = dueDate.toISOString();
+      addReminder(phone, toolInput.task, dueAtISO);
       logActivity(phone, "set_reminder", toolInput.task);
-      return { success: true, task: toolInput.task, due_at: toolInput.due_at };
+      return { success: true, task: toolInput.task, due_at: dueAtISO, timezone: userTz };
+    }
 
     case "remember":
       setMemory(phone, toolInput.key, toolInput.value);
