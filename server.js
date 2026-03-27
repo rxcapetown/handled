@@ -499,6 +499,13 @@ app.get("/debug/reminders", (req, res) => {
   res.json({ server_time: now, sqlite_now: sqliteNow.now, pending_reminders: pending });
 });
 
+
+// Debug: see scheduled briefings
+app.get("/debug/briefings", (req, res) => {
+  const briefings = db.prepare("SELECT sb.*, u.timezone, u.name FROM scheduled_briefings sb JOIN users u ON sb.phone = u.phone").all();
+  res.json({ count: briefings.length, briefings });
+});
+
 // HEALTH CHECK
 // ═══════════════════════════════════════════════════════════════
 app.get("/health", (req, res) => {
