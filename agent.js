@@ -185,7 +185,7 @@ async function executeTool(phone, toolName, toolInput) {
       try {
         // Use Claude with web search tool to get real-time results
         const searchResponse = await client.messages.create({
-          model: "claude-haiku-4-5-20251001",
+          model: "claude-sonnet-4-20250514",
           max_tokens: 1024,
           tools: [{ type: "web_search_20250305", name: "web_search" }],
           messages: [{ role: "user", content: `Search the web for: ${toolInput.query}. Return a concise summary of the top results with specific details like prices, dates, links, and ratings where available.` }],
