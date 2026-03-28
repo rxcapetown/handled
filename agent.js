@@ -383,7 +383,7 @@ I'll still send you a morning briefing for free — but I can't manage your emai
 
   // Check daily message limit
   const dailyCount = getDailyMessageCount(phone);
-  if (dailyCount >= 12) {
+  if (dailyCount >= 50) {
     return "You have used your messages for today! I will be back at midnight your local time. See you then! 🌙";
   }
   incrementDailyMessageCount(phone);
