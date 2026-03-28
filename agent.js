@@ -410,6 +410,9 @@ I'll still send you a morning briefing for free — but I can't manage your emai
     content: m.content,
   }));
 
+  // Detect if user is asking for a reminder
+  const isReminderRequest = /remind|reminder|alert|notify|don.t forget|remember to/i.test(messageText);
+
   try {
     // Call Claude with tools
     let response = await client.messages.create({
@@ -417,6 +420,7 @@ I'll still send you a morning briefing for free — but I can't manage your emai
       max_tokens: 1024,
       system: systemPrompt,
       tools: availableTools.length > 0 ? availableTools : undefined,
+      tool_choice: isReminderRequest ? { type: "any" } : { type: "auto" },
       messages,
     });
 
