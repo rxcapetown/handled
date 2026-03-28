@@ -383,8 +383,8 @@ I'll still send you a morning briefing for free — but I can't manage your emai
 
   // Check daily message limit
   const dailyCount = getDailyMessageCount(phone);
-  if (dailyCount >= 20) {
-    return "You have reached your daily limit of 20 messages. Your limit resets at midnight. Text \"upgrade\" for higher limits!";
+  if (dailyCount >= 12) {
+    return "You have used your messages for today! I will be back at midnight your local time. See you then! 🌙";
   }
   incrementDailyMessageCount(phone);
 

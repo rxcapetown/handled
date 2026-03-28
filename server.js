@@ -126,7 +126,7 @@ app.post("/webhook/whatsapp", async (req, res) => {
   try {
     // Handle quick commands
     if (body.toLowerCase() === "upgrade" || body.toLowerCase() === "subscribe") {
-      await sendWhatsApp(from, "Umar is currently free! No subscription needed. Just keep using me.");
+      await sendWhatsApp(from, "Umar is completely free! No subscription needed. Just keep texting me 😊");
       return;
     }
 
