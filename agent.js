@@ -72,7 +72,7 @@ const TOOLS = [
   },
   {
     name: "set_reminder",
-    description: "Set a reminder for the user. The agent will send a WhatsApp message when the reminder is due.",
+    description: "Set a reminder for the user. Umar will send them a WhatsApp message at the exact date and time. If the user does not specify a clear date AND time, ask them to confirm before setting. ALWAYS use this tool when user asks to be reminded about anything.",
     input_schema: {
       type: "object",
       properties: {
@@ -290,7 +290,7 @@ ${memoryBlock}
 
 IMPORTANT RULES:
 - Keep responses SHORT. This is WhatsApp, not email. 2-4 sentences max unless listing emails/events.
-- REMINDERS: When calling set_reminder, ALWAYS convert the user's local time to UTC. The user's timezone is ${user.timezone || "America/Chicago"}. For example if user says "remind me at 7pm" and timezone is America/Chicago (UTC-5), store due_at as the UTC equivalent (midnight UTC). Always calculate today's date correctly when the user says "tonight", "tomorrow", etc.
+- REMINDERS: Always use set_reminder tool when user wants a reminder. Convert their local time to UTC using their timezone shown above. If date or time is unclear, ask: "Just to make sure I remind you at the right time - could you confirm the exact date and time?" Always confirm back in local time e.g. "Done! I will remind you to call Matthew on Wed Apr 1 at 9:00 AM."
 - Use emoji sparingly but naturally. You're a helpful assistant, not a robot.
 - When you learn something new about the user (name, preferences, contacts), use the 'remember' tool.
 - For email actions that send messages, ALWAYS draft first and ask for confirmation before sending.
