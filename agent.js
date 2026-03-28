@@ -479,66 +479,111 @@ I'll still send you a morning briefing for free — but I can't manage your emai
 // ─── Generate daily briefing ──────────────────────────────────
 async function generateBriefing(phone) {
   const user = getOrCreateUser(phone);
-  if (!isTrialActive(user) && !user.is_paid) {
-    // Free briefing for expired trial users (minimal cost)
-    return `☀️ Good morning${user.name ? `, ${user.name}` : ""}!\n\nYour free daily briefing: Today is ${new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}.\n\nTo get your full briefing with email summaries, calendar events, and reminders, subscribe for $9.99/month:\n${process.env.BASE_URL}/subscribe?phone=${encodeURIComponent(phone)}`;
+  const parts = [];
+  const userName = user.name || "";
+  const userMemories = getMemory(phone);
+
+  const topicsRaw = userMemories.find(m => m.key === "briefing_topics")?.value || "news";
+  const lang = userMemories.find(m => m.key === "briefing_language")?.value || "English";
+  const location = userMemories.find(m => m.key === "briefing_location")?.value || "";
+  const topicList = topicsRaw.split(",").map(t => t.trim().toLowerCase());
+
+  parts.push(`☀️ Good morning${userName ? `, ${userName}` : ""}! Here is your daily briefing:\n`);
+
+  // NEWS
+  if (topicList.some(t => t.includes("news"))) {
+    try {
+      const locationQuery = location ? `${location} ` : "";
+      const newsResponse = await client.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1024,
+        tools: [{ type: "web_search_20250305", name: "web_search" }],
+        messages: [{ role: "user", content: `Search: ${locationQuery}top news today. Give top 3-5 headlines with one line summary each. Respond in ${lang}. WhatsApp format, no markdown.` }]
+      });
+      const newsText = newsResponse.content.filter(b => b.type === "text").map(b => b.text).join("\n");
+      if (newsText) parts.push(`📰 Top News:\n${newsText}`);
+    } catch(e) { parts.push("📰 Could not fetch news."); }
   }
 
-  const parts = [];
-  const memories = getMemory(phone);
-  const userName = user.name || "";
+  // STOCKS
+  if (topicList.some(t => t.includes("stock") || t.includes("crypto"))) {
+    try {
+      const stockTopics = userMemories.find(m => m.key === "briefing_stocks")?.value || "S&P 500, Bitcoin";
+      const stockResponse = await client.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 512,
+        tools: [{ type: "web_search_20250305", name: "web_search" }],
+        messages: [{ role: "user", content: `Current prices and 24h change for: ${stockTopics}. Very short, WhatsApp friendly. Respond in ${lang}.` }]
+      });
+      const stockText = stockResponse.content.filter(b => b.type === "text").map(b => b.text).join("\n");
+      if (stockText) parts.push(`\n📈 Markets:\n${stockText}`);
+    } catch(e) { parts.push("\n📈 Could not fetch markets."); }
+  }
 
-  parts.push(`☀️ Good morning${userName ? `, ${userName}` : ""}! Here's your daily briefing:\n`);
+  // WEATHER
+  if (topicList.some(t => t.includes("weather"))) {
+    try {
+      const weatherLoc = location || "Fort Worth Texas";
+      const weatherResponse = await client.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 256,
+        tools: [{ type: "web_search_20250305", name: "web_search" }],
+        messages: [{ role: "user", content: `Weather today in ${weatherLoc}. Temp, conditions, any alerts. 2 lines max. Respond in ${lang}.` }]
+      });
+      const weatherText = weatherResponse.content.filter(b => b.type === "text").map(b => b.text).join("\n");
+      if (weatherText) parts.push(`\n⛅ Weather:\n${weatherText}`);
+    } catch(e) { parts.push("\n⛅ Could not fetch weather."); }
+  }
 
-  // Email summary
-  if (hasProvider(phone, "google")) {
+  // EMAILS
+  if (topicList.some(t => t.includes("email")) && hasProvider(phone, "google")) {
     try {
       const emailResult = await google.listEmails(phone, "is:unread", 5);
       if (emailResult.emails && emailResult.emails.length > 0) {
-        parts.push(`📧 *${emailResult.emails.length} unread emails:*`);
+        parts.push(`\n📧 ${emailResult.emails.length} unread emails:`);
         emailResult.emails.forEach((e, i) => {
           parts.push(`${i + 1}. ${e.from.split("<")[0].trim()} — ${e.subject}`);
         });
       } else {
-        parts.push("📧 Inbox clear! No unread emails.");
+        parts.push("\n📧 Inbox clear!");
       }
-    } catch (e) {
-      parts.push("📧 Couldn't check email — may need to reconnect.");
-    }
-
-    // Calendar
-    try {
-      const now = new Date();
-      const endOfDay = new Date(now);
-      endOfDay.setHours(23, 59, 59);
-      const eventResult = await google.listEvents(phone, now.toISOString(), endOfDay.toISOString());
-      if (eventResult.events && eventResult.events.length > 0) {
-        parts.push(`\n📅 *Today's schedule:*`);
-        eventResult.events.forEach((e) => {
-          const time = new Date(e.start).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-          parts.push(`• ${time} — ${e.summary}`);
-        });
-      } else {
-        parts.push("\n📅 No events today. Wide open!");
-      }
-    } catch (e) {
-      parts.push("\n📅 Couldn't check calendar.");
-    }
+    } catch(e) { parts.push("\n📧 Could not check email."); }
   }
 
-  // Pending reminders
-  const { getDueReminders } = require("./db");
-  const dueToday = getDueReminders();
-  const userReminders = dueToday.filter((r) => r.phone === phone);
-  if (userReminders.length > 0) {
-    parts.push(`\n⏰ *Reminders due:*`);
-    userReminders.forEach((r) => parts.push(`• ${r.task}`));
+  // CALENDAR
+  if (topicList.some(t => t.includes("calendar") || t.includes("email")) && hasProvider(phone, "google")) {
+    try {
+      const calNow = new Date();
+      const calEnd = new Date(calNow);
+      calEnd.setHours(23, 59, 59);
+      const eventResult = await google.listEvents(phone, calNow.toISOString(), calEnd.toISOString());
+      if (eventResult.events && eventResult.events.length > 0) {
+        parts.push(`\n📅 Today's schedule:`);
+        eventResult.events.forEach((ev) => {
+          const t = new Date(ev.start).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+          parts.push(`• ${t} — ${ev.summary}`);
+        });
+      } else {
+        parts.push("\n📅 No events today.");
+      }
+    } catch(e) { parts.push("\n📅 Could not check calendar."); }
+  }
+
+  // REMINDERS
+  if (topicList.some(t => t.includes("reminder"))) {
+    const { getDueReminders } = require("./db");
+    const allDue = getDueReminders();
+    const userReminders = allDue.filter(r => r.phone === phone);
+    if (userReminders.length > 0) {
+      parts.push(`\n⏰ Reminders due:`);
+      userReminders.forEach(r => parts.push(`• ${r.task}`));
+    }
   }
 
   parts.push("\nWhat would you like me to handle today?");
-
   logActivity(phone, "daily_briefing", "sent");
   return parts.join("\n");
 }
+
 
 module.exports = { handleMessage, generateBriefing };
