@@ -503,10 +503,18 @@ app.get("/terms", (req, res) => {
 
 // Debug: see pending reminders
 app.get("/debug/reminders", (req, res) => {
-  const pending = db.prepare("SELECT * FROM reminders WHERE sent = 0 ORDER BY due_at DESC LIMIT 10").all();
+  const pending = db.prepare("SELECT * FROM reminders ORDER BY id DESC LIMIT 20").all();
   const now = new Date().toISOString();
-  const sqliteNow = db.prepare("SELECT datetime('now') as now").get();
-  res.json({ server_time: now, sqlite_now: sqliteNow.now, pending_reminders: pending });
+  const nowMs = Date.now();
+  const checked = pending.map(r => ({
+    ...r,
+    due_at_parsed: new Date(r.due_at).toISOString(),
+    due_at_ms: new Date(r.due_at).getTime(),
+    now_ms: nowMs,
+    is_due: new Date(r.due_at).getTime() <= nowMs,
+    diff_minutes: Math.round((new Date(r.due_at).getTime() - nowMs) / 60000)
+  }));
+  res.json({ server_time: now, reminders: checked });
 });
 
 
