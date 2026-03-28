@@ -9,6 +9,10 @@ const db = new Database(DB_PATH);
 // Enable WAL mode for better concurrent performance
 db.pragma("journal_mode = WAL");
 
+// ─── Migrations ───────────────────────────────────────────────
+try { db.exec("ALTER TABLE daily_usage ADD COLUMN voice_count INTEGER DEFAULT 0"); } catch(e) {}
+try { db.exec("ALTER TABLE users ADD COLUMN timezone TEXT DEFAULT 'America/Chicago'"); } catch(e) {}
+
 // ─── Schema ───────────────────────────────────────────────────
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
