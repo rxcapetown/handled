@@ -78,7 +78,7 @@ app.post("/webhook/whatsapp", async (req, res) => {
       // Check voice note daily limit
       const voiceCount = getDailyVoiceCount(phone);
       if (voiceCount >= 3) {
-        await sendWhatsApp(from, "You have used all 3 voice notes for today. Your limit will renew at 12:00 AM. You can still type your messages!");
+        await sendWhatsApp(from, "Oops! You finished today's free voice notes. My human wants me to restart at 12:00 AM again. You can still type your messages though!");
         return;
       }
       incrementDailyVoiceCount(phone);
@@ -131,8 +131,8 @@ app.post("/webhook/whatsapp", async (req, res) => {
     const lowerBody = body.toLowerCase();
     if (!["upgrade", "subscribe", "connect", "connect email", "connect google", "status", "menu", "help", "?", "y", "n", "yes", "no", "1", "2"].includes(lowerBody)) {
       const msgCount = getDailyMessageCount(phone);
-      if (msgCount >= 7) {
-        await sendWhatsApp(from, "You have used all 7 messages for today. Your limit will renew at 12:00 AM. See you tomorrow!");
+      if (msgCount >= 12) {
+        await sendWhatsApp(from, "Oops! You finished today's free messages. My human wants me to restart at 12:00 AM again. In the meantime, don't forget me!");
         return;
       }
       incrementDailyMessageCount(phone);

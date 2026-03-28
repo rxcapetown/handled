@@ -231,12 +231,17 @@ function addReminder(phone, task, dueAt) {
 }
 
 function getDueReminders() {
-  const now = new Date().toISOString();
-  return db
-    .prepare(
-      "SELECT * FROM reminders WHERE sent = 0 AND (due_at <= datetime('now') OR due_at <= ? OR replace(replace(due_at, 'T', ' '), 'Z', '') <= datetime('now'))"
-    )
-    .all(now);
+  // Get all unsent reminders and check in JavaScript (SQLite string comparison fails with mixed ISO formats)
+  const all = db.prepare("SELECT * FROM reminders WHERE sent = 0").all();
+  const now = Date.now();
+  return all.filter(r => {
+    try {
+      const dueTime = new Date(r.due_at).getTime();
+      return dueTime <= now;
+    } catch (e) {
+      return false;
+    }
+  });
 }
 
 function markReminderSent(id) {
