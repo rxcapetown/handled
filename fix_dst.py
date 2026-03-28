@@ -1,16 +1,12 @@
 with open("agent.js", "r") as f:
     content = f.read()
 
-old = '    "+1": "America/Chicago",'
-new = '    "+1": "America/Chicago", // Note: currently CDT (UTC-5) not CST (UTC-6) due to daylight saving time'
+old = 'Today is ${today}. Current time: ${currentTime} (${user.timezone || "America/Chicago"}). Current UTC time: ${currentUTC}.'
+new = 'Today is ${today}. Current time: ${currentTime} (${user.timezone || "America/Chicago"}). Current UTC time: ${currentUTC}. CRITICAL FOR REMINDERS: Always use the Current UTC time above as your base. For relative times like "in 5 minutes", add to current UTC. For absolute times like "9am", convert using the IANA timezone name (e.g. America/Chicago automatically handles daylight saving time - it is currently UTC-5 not UTC-6). Never hardcode UTC offsets.'
 
 content = content.replace(old, new)
+print("Fix:", "✅" if old not in content else "❌ not found")
 
-# The real fix - add DST note to system prompt
-old2 = 'Current UTC time: ${currentUTC}.'
-new2 = 'Current UTC time: ${currentUTC}. IMPORTANT: Use this exact UTC time as your reference for all time calculations. Do NOT manually calculate UTC offsets - always use the timezone name provided and the current UTC time above to determine correct due_at values.'
-
-content = content.replace(old2, new2)
 with open("agent.js", "w") as f:
     f.write(content)
 print("Done!")
