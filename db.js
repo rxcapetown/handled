@@ -10,8 +10,11 @@ const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
 
 // ─── Migrations ───────────────────────────────────────────────
-try { db.exec("ALTER TABLE daily_usage ADD COLUMN voice_count INTEGER DEFAULT 0"); } catch(e) {}
-try { db.exec("ALTER TABLE users ADD COLUMN timezone TEXT DEFAULT 'America/Chicago'"); } catch(e) {}
+const existingCols = db.pragma("table_info(daily_usage)").map(c => c.name);
+if (!existingCols.includes("voice_count")) {
+  db.exec("ALTER TABLE daily_usage ADD COLUMN voice_count INTEGER DEFAULT 0");
+  console.log("[Migration] Added voice_count column");
+}
 
 // ─── Schema ───────────────────────────────────────────────────
 db.exec(`
