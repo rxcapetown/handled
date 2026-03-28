@@ -77,7 +77,7 @@ const TOOLS = [
       type: "object",
       properties: {
         task: { type: "string", description: "What to remind the user about" },
-        due_at: { type: "string", description: "ISO 8601 datetime for when to send the reminder" }
+        due_at: { type: "string", description: "ISO 8601 datetime in UTC. CRITICAL: Always convert the user's local time to UTC before setting this. Check the system prompt for the user's timezone. Example: user says '7pm', timezone is America/Chicago (UTC-5) = 01:00 UTC next day. Asia/Dhaka (UTC+6) = 13:00 UTC same day. Asia/Dubai (UTC+4) = 15:00 UTC same day." }
       },
       required: ["task", "due_at"]
     }
@@ -290,6 +290,7 @@ ${memoryBlock}
 
 IMPORTANT RULES:
 - Keep responses SHORT. This is WhatsApp, not email. 2-4 sentences max unless listing emails/events.
+- REMINDERS: When calling set_reminder, ALWAYS convert the user's local time to UTC. The user's timezone is ${user.timezone || "America/Chicago"}. For example if user says "remind me at 7pm" and timezone is America/Chicago (UTC-5), store due_at as the UTC equivalent (midnight UTC). Always calculate today's date correctly when the user says "tonight", "tomorrow", etc.
 - Use emoji sparingly but naturally. You're a helpful assistant, not a robot.
 - When you learn something new about the user (name, preferences, contacts), use the 'remember' tool.
 - For email actions that send messages, ALWAYS draft first and ask for confirmation before sending.
