@@ -75,13 +75,7 @@ app.post("/webhook/whatsapp", async (req, res) => {
   // Handle voice notes
   if (numMedia > 0 && mediaType.startsWith("audio/")) {
     console.log(`[WhatsApp] ${phone}: [Voice Note]`);
-      // Check voice note daily limit
-      const voiceCount = getDailyVoiceCount(phone);
-      if (voiceCount >= 3) {
-        await sendWhatsApp(from, "Oops! You finished today's free voice notes. My human wants me to restart at 12:00 AM again. You can still type your messages though!");
-        return;
-      }
-      incrementDailyVoiceCount(phone);
+
     try {
       const fetch = require("node-fetch");
       const audioRes = await fetch(mediaUrl, {
@@ -127,16 +121,7 @@ app.post("/webhook/whatsapp", async (req, res) => {
 
   console.log(`[WhatsApp] ${phone}: ${body}`);
 
-    // Check daily message limit (skip for simple commands)
-    const lowerBody = body.toLowerCase();
-    if (!["upgrade", "subscribe", "connect", "connect email", "connect google", "status", "menu", "help", "?", "y", "n", "yes", "no", "1", "2"].includes(lowerBody)) {
-      const msgCount = getDailyMessageCount(phone);
-      if (msgCount >= 12) {
-        await sendWhatsApp(from, "Oops! You finished today's free messages. My human wants me to restart at 12:00 AM again. In the meantime, don't forget me!");
-        return;
-      }
-      incrementDailyMessageCount(phone);
-    }
+
 
   try {
     // Handle quick commands
