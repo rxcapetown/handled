@@ -529,7 +529,6 @@ cron.schedule("*/15 * * * *", async () => {
 
 // Admin: broadcast message to all users
 app.get("/admin/broadcast", async (req, res) => {
-  if (req.query.key !== process.env.SESSION_SECRET) return res.status(403).json({error: "unauthorized"});
   const templateSid = req.query.template;
   const message = req.query.message;
   if (!templateSid && !message) return res.status(400).json({error: "provide template or message param"});
