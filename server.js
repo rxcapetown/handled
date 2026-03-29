@@ -527,6 +527,46 @@ cron.schedule("*/15 * * * *", async () => {
 
 // ═══════════════════════════════════════════════════════════════
 
+// Admin: broadcast message to all users
+app.get("/admin/broadcast", async (req, res) => {
+  if (req.query.key !== process.env.SESSION_SECRET) return res.status(403).json({error: "unauthorized"});
+  const templateSid = req.query.template;
+  const message = req.query.message;
+  if (!templateSid && !message) return res.status(400).json({error: "provide template or message param"});
+
+  const users = db.prepare("SELECT phone FROM users ORDER BY created_at DESC").all();
+  const results = [];
+
+  for (const user of users) {
+    try {
+      const to = `whatsapp:${user.phone}`;
+      let result;
+      if (templateSid) {
+        result = await twilioClient.messages.create({
+          contentSid: templateSid,
+          contentVariables: JSON.stringify({ "1": user.phone }),
+          messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
+          from: process.env.TWILIO_WHATSAPP_NUMBER,
+          to
+        });
+      } else {
+        result = await twilioClient.messages.create({
+          body: message,
+          messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
+          from: process.env.TWILIO_WHATSAPP_NUMBER,
+          to
+        });
+      }
+      results.push({ phone: user.phone, status: "sent", sid: result.sid });
+      await new Promise(r => setTimeout(r, 1000));
+    } catch(err) {
+      results.push({ phone: user.phone, status: "failed", error: err.message });
+    }
+  }
+
+  res.json({ total: users.length, sent: results.filter(r => r.status === "sent").length, failed: results.filter(r => r.status === "failed").length, results });
+});
+
 // Admin: list all users (protected by simple secret)
 app.get("/admin/users", (req, res) => {
   if (req.query.key !== process.env.SESSION_SECRET) return res.status(403).json({error: "unauthorized"});
@@ -534,6 +574,46 @@ app.get("/admin/users", (req, res) => {
   res.json(users);
 });
 
+
+// Admin: broadcast message to all users
+app.get("/admin/broadcast", async (req, res) => {
+  if (req.query.key !== process.env.SESSION_SECRET) return res.status(403).json({error: "unauthorized"});
+  const templateSid = req.query.template;
+  const message = req.query.message;
+  if (!templateSid && !message) return res.status(400).json({error: "provide template or message param"});
+
+  const users = db.prepare("SELECT phone FROM users ORDER BY created_at DESC").all();
+  const results = [];
+
+  for (const user of users) {
+    try {
+      const to = `whatsapp:${user.phone}`;
+      let result;
+      if (templateSid) {
+        result = await twilioClient.messages.create({
+          contentSid: templateSid,
+          contentVariables: JSON.stringify({ "1": user.phone }),
+          messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
+          from: process.env.TWILIO_WHATSAPP_NUMBER,
+          to
+        });
+      } else {
+        result = await twilioClient.messages.create({
+          body: message,
+          messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID,
+          from: process.env.TWILIO_WHATSAPP_NUMBER,
+          to
+        });
+      }
+      results.push({ phone: user.phone, status: "sent", sid: result.sid });
+      await new Promise(r => setTimeout(r, 1000));
+    } catch(err) {
+      results.push({ phone: user.phone, status: "failed", error: err.message });
+    }
+  }
+
+  res.json({ total: users.length, sent: results.filter(r => r.status === "sent").length, failed: results.filter(r => r.status === "failed").length, results });
+});
 
 // Admin: list all users (protected by simple secret)
 app.get("/admin/users", (req, res) => {
