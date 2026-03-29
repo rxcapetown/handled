@@ -472,6 +472,9 @@ I'll still send you a morning briefing for free — but I can't manage your emai
   } catch (err) {
     console.error("Agent error:", err);
     logActivity(phone, "agent_error", err.message);
+    if (err.status === 429) {
+      return "I am a little overwhelmed right now! Too many people talking to me at once 😅 Give me 1-2 minutes and try again!";
+    }
     return "Sorry, I hit a temporary issue. Could you try that again? 🙏";
   }
 }
