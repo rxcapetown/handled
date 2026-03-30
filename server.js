@@ -509,10 +509,12 @@ cron.schedule("*/15 * * * *", async () => {
           
           console.log(`[Briefing] Sending to ${briefing.phone} (${tz}, ${userHour}:${userMinute})`);
           
-          // Generate briefing based on what user requested
-          const content = await generateBriefing(briefing.phone);
-          await sendWhatsApp(`whatsapp:${briefing.phone}`, content);
+          // Mark as sent FIRST to prevent duplicate sends
           markBriefingSent(briefing.id);
+          
+          // Generate briefing based on what user requested
+          const briefingContent = await generateBriefing(briefing.phone);
+          await sendWhatsApp(`whatsapp:${briefing.phone}`, briefingContent);
           
           await new Promise((r) => setTimeout(r, 1000));
         }
